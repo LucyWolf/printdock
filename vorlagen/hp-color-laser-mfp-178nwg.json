@@ -1,0 +1,11 @@
+{
+ "name": "HP Color Laser MFP 178nwg",
+ "treiber": {},
+ "papier": "iso_a4_210x297mm",
+ "beidseitig": false,
+ "fax": false,
+ "hinweise": ["Treiberlos – es wird kein Druckertreiber installiert.",
+              "Kein automatischer Beidseitendruck: Rückseiten von Hand neu einlegen.",
+              "Scannen nur über das Vorlagenglas, kein Einzug.",
+              "Toner HP 117A (Schwarz W2070A, Cyan W2071A, Gelb W2072A, Magenta W2073A), Bildtrommel HP 120A (W1120A)."]
+}
