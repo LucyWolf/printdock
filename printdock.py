@@ -28,7 +28,7 @@ except ImportError:
     Image = None
 
 APP_NAME = "PrintDock"
-APP_VERSION = "1.0.41"
+APP_VERSION = "1.0.42"
 # Frueher „HP Druckzentrale“, dann „Druckzentrale“; migrate_old_install() zieht alte Installationen um.
 UPDATE_REPO = "LucyWolf/printdock"
 # Mit echten Geraeten ausprobiert (Modell, Verbindung, was geprueft wurde)
@@ -409,8 +409,16 @@ def fetch_template(p):
     return get_template(p)
 
 
+def is_atomic():
+    return os.path.exists("/run/ostree-booted") and bool(shutil.which("rpm-ostree"))
+
+
 def package_tool():
     """(Kennung, Installationsbefehl, Pruefbefehl) der Paketverwaltung dieses Systems."""
+    if is_atomic():
+        # Bazzite, Silverblue, Kinoite …: /usr ist schreibgeschuetzt, dnf geht dort nicht.
+        # rpm-ostree legt die Pakete obendrauf; wirksam erst nach einem Neustart.
+        return "rpm", ["rpm-ostree", "install", "-y", "--idempotent", "--allow-inactive"], ["rpm", "-q"]
     for exe, key, install, have in (
             ("pacman", "arch", ["pacman", "-S", "--needed", "--noconfirm"], ["pacman", "-Q"]),
             ("apt-get", "deb", ["env", "DEBIAN_FRONTEND=noninteractive", "apt-get", "install", "-y"], ["dpkg", "-s"]),
@@ -431,6 +439,9 @@ def ensure_packages(by_distro):
         rc, out, err = run(["pkexec"] + install + missing, 1800)
         if rc != 0:
             raise RuntimeError("Treiber nicht installiert: " + " ".join(missing))
+        if key == "rpm" and is_atomic():
+            raise RuntimeError("Treiber installiert (" + " ".join(missing) + "). Auf diesem System werden sie "
+                               "erst nach einem Neustart aktiv – danach den Drucker bitte noch einmal einrichten.")
 
 
 # ---------- Einrichten ----------

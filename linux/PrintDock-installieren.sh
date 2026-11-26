@@ -136,7 +136,15 @@ if [ -z "$APP_SRC" ]; then
 fi
 
 # 2) Pakete je Distribution. Alles in einem Root-Schritt (ein Passwort).
-if command -v pacman >/dev/null 2>&1; then
+# Atomare Fedora-Systeme (Bazzite, Silverblue, Kinoite …) zuerst: dort gibt es zwar dnf, aber /usr ist
+# schreibgeschuetzt. rpm-ostree legt die Pakete obendrauf, sie gelten erst nach einem Neustart.
+ATOMIC=0
+if [ -e /run/ostree-booted ] && command -v rpm-ostree >/dev/null 2>&1; then
+    ATOMIC=1
+    PKGS="python3-pyside6 qt6-qtwayland python3-cups python3-pillow cups cups-filters poppler-utils sane-backends sane-airscan ipp-usb avahi nss-mdns"
+    HAVE="rpm -q"
+    INSTALL="rpm-ostree install -y --idempotent --allow-inactive"
+elif command -v pacman >/dev/null 2>&1; then
     PKGS="pyside6 qt6-wayland python-pycups python-pillow cups cups-filters poppler sane sane-airscan ipp-usb avahi nss-mdns"
     HAVE="pacman -Q"
     INSTALL="pacman -S --needed --noconfirm"
@@ -171,6 +179,7 @@ if [ -n "$MISSING" ] || [ -n "$SERVICES" ]; then
     MSG="Es wird eingerichtet:"
     [ -n "$MISSING" ] && MSG="$MSG\n\nPakete:$MISSING"
     [ -n "$SERVICES" ] && MSG="$MSG\n\nDienste einschalten:$SERVICES"
+    [ "$ATOMIC" = 1 ] && [ -n "$MISSING" ] && MSG="$MSG\n\nAuf diesem System (z. B. Bazzite) gelten neue Pakete erst nach einem Neustart."
     MSG="$MSG\n\nDanach fragt ein Fenster einmal nach deinem Passwort."
     printf '%b\n\n' "$MSG"
     # Antwortet das Fenster nicht (z.B. kaputte Desktop-Sitzung), im Terminal fragen statt stumm aufhoeren
@@ -197,8 +206,16 @@ if [ -n "$MISSING" ] || [ -n "$SERVICES" ]; then
     as_root "$ROOT_CMD" || fail "Die Installation wurde abgebrochen oder ist fehlgeschlagen.\n\nFehlende Pakete:$MISSING"
 fi
 
-python3 -c "import PySide6, cups, PIL" 2>/dev/null \
-    || fail "Python findet PySide6, pycups oder Pillow nicht.\nBitte prüfen, ob die Pakete installiert sind."
+# Atomar: frisch eingespielte Pakete sind erst nach dem Neustart da – dann nicht abbrechen, sondern
+# fertig installieren und am Ende zum Neustart auffordern
+NEED_REBOOT=0
+if ! python3 -c "import PySide6, cups, PIL" 2>/dev/null; then
+    if [ "$ATOMIC" = 1 ]; then
+        NEED_REBOOT=1
+    else
+        fail "Python findet PySide6, pycups oder Pillow nicht.\nBitte prüfen, ob die Pakete installiert sind."
+    fi
+fi
 
 # 3) Programm kopieren
 mkdir -p "$INSTALL_DIR"
@@ -226,5 +243,10 @@ DESKTOP
 command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$HOME/.local/share/applications" || true
 
 trap - EXIT; rm -f "${TMP_APP:-}"
+if [ "$NEED_REBOOT" = 1 ]; then
+    info "Installation abgeschlossen – bitte jetzt den PC neu starten.\n\nDie neuen Pakete gelten auf diesem System erst nach dem Neustart.\nDanach startet PrintDock über das Anwendungsmenü."
+    pause_in_terminal
+    exit 0
+fi
 info "Installation abgeschlossen!\n\nStart über das Anwendungsmenü: PrintDock\n\nUSB-Drucker, die schon stecken: einmal ab- und wieder anstecken."
 pause_in_terminal

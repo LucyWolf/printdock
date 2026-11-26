@@ -18,7 +18,7 @@ Download the installer for your distribution from the [Releases](https://github.
 |---|---|
 | Arch / CachyOS / Manjaro | [`PrintDock-arch-installer.desktop`](https://github.com/LucyWolf/printdock/releases/latest/download/PrintDock-arch-installer.desktop) |
 | Debian / Ubuntu | [`PrintDock-deb-installer.desktop`](https://github.com/LucyWolf/printdock/releases/latest/download/PrintDock-deb-installer.desktop) |
-| Everything else (Fedora, openSUSE, …) | [`PrintDock-installer.desktop`](https://github.com/LucyWolf/printdock/releases/latest/download/PrintDock-installer.desktop) |
+| Everything else (Fedora, Bazzite, openSUSE, …) – on Bazzite/Silverblue restart once afterwards | [`PrintDock-installer.desktop`](https://github.com/LucyWolf/printdock/releases/latest/download/PrintDock-installer.desktop) |
 
 The installer sets up everything with a single password prompt: Qt (PySide6, native Wayland), CUPS, Poppler (PDF for fax), SANE with sane-airscan, ipp-usb and Avahi. Printer drivers are only installed when a printer actually needs one (see *Printer templates*). It turns on the printing service and network discovery, installs the app and adds a menu entry. Running it again offers **Update** or **Uninstall**.
 
@@ -94,7 +94,7 @@ Den Installer für deine Distribution von der [Releases](https://github.com/Lucy
 |---|---|
 | Arch / CachyOS / Manjaro | [`PrintDock-arch-installer.desktop`](https://github.com/LucyWolf/printdock/releases/latest/download/PrintDock-arch-installer.desktop) |
 | Debian / Ubuntu | [`PrintDock-deb-installer.desktop`](https://github.com/LucyWolf/printdock/releases/latest/download/PrintDock-deb-installer.desktop) |
-| Alle anderen (Fedora, openSUSE, …) | [`PrintDock-installer.desktop`](https://github.com/LucyWolf/printdock/releases/latest/download/PrintDock-installer.desktop) |
+| Alle anderen (Fedora, Bazzite, openSUSE, …) – bei Bazzite/Silverblue danach einmal neu starten | [`PrintDock-installer.desktop`](https://github.com/LucyWolf/printdock/releases/latest/download/PrintDock-installer.desktop) |
 
 Der Installer richtet alles mit einer einzigen Passwortabfrage ein: Qt (PySide6, nativ unter Wayland), CUPS, Poppler (PDF fürs Fax), SANE mit sane-airscan, ipp-usb und Avahi. Druckertreiber kommen nur dazu, wenn ein Drucker wirklich einen braucht (siehe *Druckervorlagen*). Er schaltet Druckdienst und Netzwerksuche ein, installiert die App und legt einen Menüeintrag an. Erneut gestartet bietet er **Aktualisieren** oder **Deinstallieren** an.
 
