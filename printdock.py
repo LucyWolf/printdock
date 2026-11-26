@@ -28,7 +28,7 @@ except ImportError:
     Image = None
 
 APP_NAME = "PrintDock"
-APP_VERSION = "1.0.40"
+APP_VERSION = "1.0.41"
 # Frueher „HP Druckzentrale“, dann „Druckzentrale“; migrate_old_install() zieht alte Installationen um.
 UPDATE_REPO = "LucyWolf/printdock"
 # Mit echten Geraeten ausprobiert (Modell, Verbindung, was geprueft wurde)
@@ -367,6 +367,7 @@ STANDARD_TEMPLATE = {
     "fax": None,             # True/False legt fest, None = beim Drucker nachsehen
     "wartung": None,         # Liste erlaubter Wartungsauftraege, None = alles, was der Drucker anbietet
     "hinweise": [],
+    "bild": None,            # Adresse eines Geraetebilds (https), wird nur geladen, nie mit der App verteilt
 }
 
 
@@ -385,9 +386,14 @@ def get_template(p):
 
 
 def fetch_template(p):
-    """Einmal je Modell: passende Vorlage herunterladen und merken (auch „keine vorhanden“ wird gemerkt)."""
+    """Passende Vorlage herunterladen und merken (auch „keine vorhanden“); einmal am Tag neu nachsehen,
+    damit Ergaenzungen an der Vorlage auch bei schon eingebundenen Druckern ankommen."""
     path = os.path.join(TEMPLATE_DIR, template_slug(p) + ".json")
-    if not os.path.exists(path):
+    try:
+        fresh = time.time() - os.path.getmtime(path) < 86400
+    except OSError:
+        fresh = False
+    if not fresh:
         url = TEMPLATE_URL.format(repo=UPDATE_REPO, slug=template_slug(p))
         try:
             with urllib.request.urlopen(url, timeout=10) as r:
@@ -1320,6 +1326,30 @@ def printer_image_path(p):
     return path if os.path.exists(path) else None
 
 
+def fetch_printer_image(p, url):
+    """Geraetebild aus der Vorlage holen, wenn noch keins da ist (ein eigenes Bild hat immer Vorrang).
+    Liegt danach nur auf diesem PC. True = neues Bild gespeichert."""
+    if not url or not url.startswith("https://") or printer_image_path(p):
+        return False
+    try:
+        with urllib.request.urlopen(url, timeout=15) as r:
+            data = r.read(5 * 1024 * 1024 + 1)
+        if len(data) > 5 * 1024 * 1024:
+            return False
+        import io
+        img = Image.open(io.BytesIO(data))
+        if img.width * img.height > 4000 * 4000:   # Dekompressions-Bombe
+            return False
+        img = img.convert("RGBA")
+        img.thumbnail((600, 400))
+        target = printer_image_target(p)
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        img.save(target)
+        return True
+    except Exception:
+        return False
+
+
 def is_toner(markers):
     return any("toner" in (m.get("name") or "").lower() for m in markers)
 
@@ -2047,6 +2077,9 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.apply_template(p, tmpl)
             if p is self.current:
                 self.check_fax(p)
+            if ok and tmpl.get("bild") and not printer_image_path(p):
+                bg(lambda: fetch_printer_image(p, tmpl["bild"]),
+                   lambda ok2, new: ok2 and new and p is self.current and self.build_overview())
         bg(lambda: fetch_template(p), done)
 
     def apply_template(self, p, tmpl):

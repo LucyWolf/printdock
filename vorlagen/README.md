@@ -16,6 +16,7 @@ z. B. „HP Officejet Pro 8620“ → `hp-officejet-pro-8620.json`.
 | `fax` | `true`/`false` legt fest, ob es Fax gibt | beim Drucker nachsehen |
 | `wartung` | erlaubte Wartungs- und Berichtsaufträge (Druckkopfreinigung immer) | alles, was der Drucker anbietet |
 | `hinweise` | kurze Hinweise, stehen in der Übersicht unter „Gerät“ | keine |
+| `bild` | Adresse (https) eines Gerätebilds, z. B. beim Hersteller. Nur der Link steht hier, das Bild lädt jeder PC selbst; ein eigenes Bild hat Vorrang | Druckersymbol |
 
 Eine neue Vorlage ist nach dem Hochladen sofort für alle da – ohne neue App-Version.
-Bereits gemerkte Vorlagen liegen unter `~/.local/share/printdock/vorlagen/`.
+Bereits gemerkte Vorlagen liegen unter `~/.local/share/printdock/vorlagen/` und werden einmal am Tag neu geholt.
