@@ -60,6 +60,7 @@ When a printer is added, PrintDock downloads **only the template for that model*
 ## Tested printers
 
 - HP OfficeJet Pro 8620
+- HP Color Laser MFP 178nwg (scanning not yet tried)
 
 Other printers should work through the standards (IPP Everywhere/AirPrint for printing, eSCL for scanning) but have not been tried yet. Older printers without these standards need a driver; PrintDock installs the free ones when needed, others are only available from the manufacturer. Printhead cleaning and reports are available for HP printers with a built-in web interface. Fax works with HP printers that offer PC fax through their built-in interface.
 
@@ -135,6 +136,7 @@ Beim Einbinden lädt PrintDock **nur die Vorlage dieses Modells** aus [`vorlagen
 ## Getestete Drucker
 
 - HP OfficeJet Pro 8620
+- HP Color Laser MFP 178nwg (Scannen noch nicht ausprobiert)
 
 Andere Drucker sollten über die Standards (IPP Everywhere/AirPrint zum Drucken, eSCL zum Scannen) funktionieren, sind aber noch nicht ausprobiert. Ältere Drucker ohne diese Standards brauchen einen Treiber; die freien installiert PrintDock bei Bedarf, andere gibt es nur beim Hersteller. Druckkopfreinigung und Berichte gibt es bei HP-Druckern mit eingebauter Weboberfläche. Fax geht bei HP-Druckern, die PC-Fax über ihre eingebaute Schnittstelle anbieten.
 
