@@ -6,7 +6,7 @@ name: Release
 on:
   push:
     branches: [main]
-    paths: [printdock.py, windows/**]
+    paths: [printdock.py, windows/**, .github/workflows/release.yml]
   workflow_dispatch:
 
 permissions:
@@ -17,6 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       neu: ${{ steps.v.outputs.neu }}
+      win: ${{ steps.v.outputs.win }}
       ver: ${{ steps.v.outputs.ver }}
     env:
       GH_TOKEN: ${{ github.token }}
@@ -31,7 +32,14 @@ jobs:
           echo "ver=$VER" >> "$GITHUB_OUTPUT"
           if git rev-parse -q --verify "refs/tags/v$VER" >/dev/null; then
             echo "v$VER gibt es schon – kein neues Release."
-            echo "neu=nein" >> "$GITHUB_OUTPUT"; exit 0
+            echo "neu=nein" >> "$GITHUB_OUTPUT"
+            # Windows-Setup fehlt im Release (z. B. Bau abgebrochen)? Dann nur das nachholen
+            if gh release view "v$VER" --json assets -q '.assets[].name' | grep -qx 'PrintDock-setup.exe'; then
+              echo "win=nein" >> "$GITHUB_OUTPUT"
+            else
+              echo "win=ja" >> "$GITHUB_OUTPUT"
+            fi
+            exit 0
           fi
           LAST=$(git tag -l 'v*' | sed 's/^v//' | sort -V | tail -1)
           if [ -n "$LAST" ] && [ "$(printf '%s\n%s\n' "$LAST" "$VER" | sort -V | tail -1)" != "$VER" ]; then
@@ -39,6 +47,7 @@ jobs:
             exit 1
           fi
           echo "neu=ja" >> "$GITHUB_OUTPUT"
+          echo "win=ja" >> "$GITHUB_OUTPUT"
       - name: Prüfen
         if: steps.v.outputs.neu == 'ja'
         run: |
@@ -66,7 +75,7 @@ jobs:
   # deinstallieren, dann PrintDock-setup.exe an dasselbe Release haengen
   windows:
     needs: release
-    if: needs.release.outputs.neu == 'ja'
+    if: needs.release.outputs.win == 'ja'
     runs-on: windows-latest
     env:
       GH_TOKEN: ${{ github.token }}
