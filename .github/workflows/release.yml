@@ -91,6 +91,7 @@ jobs:
         shell: pwsh
         run: |
           $env:QT_QPA_PLATFORM = "offscreen"
+          $env:QT_QPA_FONTDIR = "$env:WINDIR\Fonts"   # unsichtbar findet Qt die Windows-Schriften sonst nicht
           $env:DZ_SELFTEST = "$env:RUNNER_TEMP\printdock.png"
           $p = Start-Process dist\PrintDock\PrintDock.exe -PassThru
           if (-not $p.WaitForExit(90000)) { $p.Kill(); throw "PrintDock beendet sich nicht" }
@@ -104,7 +105,9 @@ jobs:
         run: |
           choco install innosetup -y --no-progress
           $lang = "${env:ProgramFiles(x86)}\Inno Setup 6\Languages"
-          Invoke-WebRequest "https://raw.githubusercontent.com/jrsoftware/issrc/main/Files/Languages/Unofficial/ChineseSimplified.isl" -OutFile "$lang\ChineseSimplified.isl"
+          if (-not (Test-Path "$lang\ChineseSimplified.isl")) {   # ab Inno Setup 6.4 dabei, sonst nachladen
+            Invoke-WebRequest "https://raw.githubusercontent.com/jrsoftware/issrc/main/Files/Languages/ChineseSimplified.isl" -OutFile "$lang\ChineseSimplified.isl"
+          }
           iscc /DAppVersion=$env:VER windows\PrintDock.iss
           if (-not (Test-Path dist\PrintDock-setup.exe)) { throw "Setup fehlt" }
       - name: Setup testen (still installieren und deinstallieren)
