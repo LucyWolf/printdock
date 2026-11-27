@@ -481,5 +481,13 @@
  "Unter {0} antwortet kein Drucker. Ist er eingeschaltet und die Adresse richtig?": "По адресу {0} принтер не отвечает. Он включён и адрес верный?",
  "Treiber wählen": "Выбор драйвера",
  "Der Drucker versteht kein IPP. Welcher Windows-Treiber soll ihn ansteuern?\n„Microsoft PCL6 Class Driver“ passt für die meisten Laserdrucker, „Microsoft PS Class Driver“ für PostScript-Geräte. Beim Einrichten fragt Windows nach Administratorrechten.": "Принтер не понимает IPP. Какой драйвер Windows должен им управлять?\n«Microsoft PCL6 Class Driver» подходит для большинства лазерных принтеров, «Microsoft PS Class Driver» – для устройств PostScript. При настройке Windows запросит права администратора.",
- "abgebrochen": "отменено"
+ "abgebrochen": "отменено",
+ "Alternativ in Windows: Einstellungen → Bluetooth und Geräte → Drucker und Scanner → Gerät hinzufügen.": "Или в Windows: Параметры → Bluetooth и устройства → Принтеры и сканеры → Добавить устройство.",
+ "PowerShell fehlt in dieser Windows-Version. Drucker zeigt PrintDock trotzdem an; einrichten geht dann nur über die Windows-Einstellungen.": "В этой версии Windows нет PowerShell. PrintDock всё равно показывает принтеры; настроить их можно только через параметры Windows.",
+ "In dieser Windows-Version fehlt die Druckwarteschlange. Drucken geht erst mit einer Windows-Version, die Drucken enthält; Scannen und Füllstände gehen trotzdem.": "В этой версии Windows нет диспетчера печати. Печать работает только в версии Windows с поддержкой печати; сканирование и уровни работают и так.",
+ "Die Windows-Druckwarteschlange ist ausgeschaltet – das machen abgespeckte Windows-Versionen oft. Ohne sie kann Windows nicht drucken.": "Диспетчер печати Windows отключён – урезанные версии Windows часто так делают. Без него Windows не может печатать.",
+ "Die Windows-Druckbefehle fehlen. Drucker richtest du dann über die Windows-Einstellungen ein; Füllstände und Scannen gehen trotzdem.": "Нет команд печати Windows. Настраивайте принтеры через параметры Windows; уровни и сканирование работают и так.",
+ "Einschalten": "Включить",
+ "Windows fragt gleich nach Administratorrechten …": "Сейчас Windows запросит права администратора …",
+ "Druckwarteschlange läuft.": "Диспетчер печати работает."
 }

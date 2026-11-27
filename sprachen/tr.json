@@ -481,5 +481,13 @@
  "Unter {0} antwortet kein Drucker. Ist er eingeschaltet und die Adresse richtig?": "{0} adresinde yanıt veren yazıcı yok. Açık mı ve adres doğru mu?",
  "Treiber wählen": "Sürücü seç",
  "Der Drucker versteht kein IPP. Welcher Windows-Treiber soll ihn ansteuern?\n„Microsoft PCL6 Class Driver“ passt für die meisten Laserdrucker, „Microsoft PS Class Driver“ für PostScript-Geräte. Beim Einrichten fragt Windows nach Administratorrechten.": "Yazıcı IPP anlamıyor. Hangi Windows sürücüsü onu yönetsin?\n“Microsoft PCL6 Class Driver” çoğu lazer yazıcıya, “Microsoft PS Class Driver” PostScript cihazlara uyar. Kurulum sırasında Windows yönetici izni ister.",
- "abgebrochen": "iptal edildi"
+ "abgebrochen": "iptal edildi",
+ "Alternativ in Windows: Einstellungen → Bluetooth und Geräte → Drucker und Scanner → Gerät hinzufügen.": "Alternatif olarak Windows'ta: Ayarlar → Bluetooth ve cihazlar → Yazıcılar ve tarayıcılar → Cihaz ekle.",
+ "PowerShell fehlt in dieser Windows-Version. Drucker zeigt PrintDock trotzdem an; einrichten geht dann nur über die Windows-Einstellungen.": "Bu Windows sürümünde PowerShell yok. PrintDock yazıcıları yine de gösterir; kurulum ise yalnızca Windows ayarlarından yapılabilir.",
+ "In dieser Windows-Version fehlt die Druckwarteschlange. Drucken geht erst mit einer Windows-Version, die Drucken enthält; Scannen und Füllstände gehen trotzdem.": "Bu Windows sürümünde yazdırma biriktiricisi yok. Yazdırma yalnızca yazdırmayı içeren bir Windows sürümüyle mümkündür; tarama ve seviyeler yine çalışır.",
+ "Die Windows-Druckwarteschlange ist ausgeschaltet – das machen abgespeckte Windows-Versionen oft. Ohne sie kann Windows nicht drucken.": "Windows yazdırma biriktiricisi kapalı – küçültülmüş Windows sürümleri bunu sık yapar. O olmadan Windows yazdıramaz.",
+ "Die Windows-Druckbefehle fehlen. Drucker richtest du dann über die Windows-Einstellungen ein; Füllstände und Scannen gehen trotzdem.": "Windows yazdırma komutları eksik. Yazıcıları o zaman Windows ayarlarından kurun; seviyeler ve tarama yine çalışır.",
+ "Einschalten": "Aç",
+ "Windows fragt gleich nach Administratorrechten …": "Windows birazdan yönetici izni isteyecek …",
+ "Druckwarteschlange läuft.": "Yazdırma biriktiricisi çalışıyor."
 }

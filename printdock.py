@@ -29,7 +29,7 @@ except ImportError:
     Image = None
 
 APP_NAME = "PrintDock"
-APP_VERSION = "1.0.54"
+APP_VERSION = "1.0.55"
 # Frueher „HP Druckzentrale“, dann „Druckzentrale“; migrate_old_install() zieht alte Installationen um.
 UPDATE_REPO = "LucyWolf/printdock"
 # Mit echten Geraeten ausprobiert (Modell, Verbindung, was geprueft wurde)
@@ -411,7 +411,17 @@ def discover_windows():
                 p.uris = ["win://" + port]   # z. B. WSD-Anschluss: ohne Adresse kein Status
             printers.append(p)
     except Exception:
-        pass
+        # Abgespeckte Windows-Versionen ohne die PowerShell-Druckbefehle: Warteschlangen wenigstens ueber Qt
+        try:
+            from PySide6 import QtPrintSupport
+            for name in QtPrintSupport.QPrinterInfo.availablePrinterNames():
+                if not WIN_VIRTUAL.search(name):
+                    p = Printer()
+                    p.queue = p.info = name
+                    p.uris = ["win://" + name]
+                    printers.append(p)
+        except Exception:
+            pass
     for svc in mdns_browse("_ipp._tcp.local."):
         p = next((q for q in printers if q.host == svc["ip"]), None)
         if p is None:
@@ -435,7 +445,8 @@ def win_add_printer(name, uri):
     url = re.sub(r"^ipp://", "http://", re.sub(r"^ipps://", "https://", uri))
     rc, out, err = powershell(f"Add-Printer -Name {ps_quote(name)} -IppURL {ps_quote(url)}", 180)
     if rc != 0:
-        raise RuntimeError(tr("Windows konnte den Drucker nicht hinzufügen: {0}", (err or out).strip()[:200]))
+        raise RuntimeError(tr("Windows konnte den Drucker nicht hinzufügen: {0}", (err or out).strip()[:200])
+                           + "\n" + WIN_SETTINGS_HINT())
 
 
 # Allgemeine Treiber, die Windows selbst mitbringt (fuer Drucker ohne IPP am klassischen Netzwerkanschluss)
@@ -457,20 +468,13 @@ def win_drivers(model=""):
     return names
 
 
-def win_add_raw_printer(name, host, driver):
-    """Drucker ohne IPP: Standard-TCP/IP-Anschluss (Port 9100) und Treiber anlegen. Das braucht unter Windows
-    Administratorrechte – Windows fragt einmal nach (wie pkexec unter Linux)."""
+def win_elevated(script):
+    """PowerShell mit Administratorrechten (Windows fragt einmal nach, wie pkexec unter Linux).
+    Fehler aus dem erhoehten Fenster landen in einer Datei und werden als RuntimeError gemeldet."""
     import base64
     errfile = os.path.join(tempfile.mkdtemp(prefix="printdock-"), "fehler.txt")
-    script = (
-        "$ErrorActionPreference='Stop'; try { "
-        f"if (-not (Get-PrinterDriver -Name {ps_quote(driver)} -ErrorAction SilentlyContinue)) "
-        f"{{ Add-PrinterDriver -Name {ps_quote(driver)} }}; "
-        f"$port = {ps_quote('IP_' + host)}; "
-        "if (-not (Get-PrinterPort -Name $port -ErrorAction SilentlyContinue)) "
-        f"{{ Add-PrinterPort -Name $port -PrinterHostAddress {ps_quote(host)} }}; "
-        f"Add-Printer -Name {ps_quote(name)} -DriverName {ps_quote(driver)} -PortName $port "
-        f"}} catch {{ $_ | Out-File -Encoding utf8 {ps_quote(errfile)}; exit 1 }}")
+    script = (f"$ErrorActionPreference='Stop'; try {{ {script} }} "
+              f"catch {{ $_ | Out-File -Encoding utf8 {ps_quote(errfile)}; exit 1 }}")
     enc = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
     rc, out, err = powershell(
         "$p = Start-Process powershell -Verb RunAs -Wait -PassThru -WindowStyle Hidden "
@@ -482,7 +486,51 @@ def win_add_raw_printer(name, host, driver):
                 detail = fh.read().strip()
         except OSError:
             detail = (err or out).strip()
-        raise RuntimeError(tr("Windows konnte den Drucker nicht hinzufügen: {0}", detail[:300] or tr("abgebrochen")))
+        raise RuntimeError(detail[:300] or tr("abgebrochen"))
+
+
+def win_add_raw_printer(name, host, driver):
+    """Drucker ohne IPP: Standard-TCP/IP-Anschluss (Port 9100) und Treiber anlegen (braucht Adminrechte)."""
+    try:
+        win_elevated(
+            f"if (-not (Get-PrinterDriver -Name {ps_quote(driver)} -ErrorAction SilentlyContinue)) "
+            f"{{ Add-PrinterDriver -Name {ps_quote(driver)} }}; "
+            f"$port = {ps_quote('IP_' + host)}; "
+            "if (-not (Get-PrinterPort -Name $port -ErrorAction SilentlyContinue)) "
+            f"{{ Add-PrinterPort -Name $port -PrinterHostAddress {ps_quote(host)} }}; "
+            f"Add-Printer -Name {ps_quote(name)} -DriverName {ps_quote(driver)} -PortName $port")
+    except RuntimeError as e:
+        raise RuntimeError(tr("Windows konnte den Drucker nicht hinzufügen: {0}", e) + "\n" + WIN_SETTINGS_HINT())
+
+
+def WIN_SETTINGS_HINT():
+    return tr("Alternativ in Windows: Einstellungen → Bluetooth und Geräte → Drucker und Scanner → Gerät hinzufügen.")
+
+
+def win_health():
+    """Was abgespeckten Windows-Versionen (Tiny11, LTSC, „entschlackt“) fuer PrintDock oft fehlt: [(kennung, text)]."""
+    if not shutil.which("powershell"):
+        return [("powershell", tr("PowerShell fehlt in dieser Windows-Version. Drucker zeigt PrintDock trotzdem an; "
+                                  "einrichten geht dann nur über die Windows-Einstellungen."))]
+    rc, out, err = powershell(
+        "$s = Get-Service Spooler -ErrorAction SilentlyContinue; "
+        "if (-not $s) { 'spooler:fehlt' } else { 'spooler:' + [string]$s.Status }; "
+        "if (Get-Command Get-Printer -ErrorAction SilentlyContinue) { 'befehle:ja' } else { 'befehle:nein' }", 40)
+    problems = []
+    if "spooler:fehlt" in out:
+        problems.append(("spooler-fehlt", tr("In dieser Windows-Version fehlt die Druckwarteschlange. Drucken geht erst "
+                                             "mit einer Windows-Version, die Drucken enthält; Scannen und Füllstände gehen trotzdem.")))
+    elif "spooler:" in out and "spooler:Running" not in out:
+        problems.append(("spooler-aus", tr("Die Windows-Druckwarteschlange ist ausgeschaltet – das machen abgespeckte "
+                                           "Windows-Versionen oft. Ohne sie kann Windows nicht drucken.")))
+    if "befehle:nein" in out:
+        problems.append(("befehle", tr("Die Windows-Druckbefehle fehlen. Drucker richtest du dann über die "
+                                       "Windows-Einstellungen ein; Füllstände und Scannen gehen trotzdem.")))
+    return problems
+
+
+def win_enable_spooler():
+    win_elevated("Set-Service -Name Spooler -StartupType Automatic; Start-Service -Name Spooler")
 
 
 def parse_page_ranges(text):
@@ -3750,7 +3798,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def check_dependencies(self):
         if WINDOWS:
-            return   # die Windows-Fassung bringt alles mit
+            bg(win_health, lambda ok, res: ok and self.show_win_problems(res))
+            return
         missing = []
         if cups is None:
             missing.append("python-pycups")
@@ -3775,6 +3824,30 @@ class MainWindow(QtWidgets.QMainWindow):
             btn.clicked.connect(lambda: self.install_packages(missing, bar))
             lay.addWidget(btn)
         self.banner.addWidget(bar)
+
+    def show_win_problems(self, problems):
+        """Abgespeckte Windows-Versionen: sagen, was fehlt; die Druckwarteschlange laesst sich gleich einschalten."""
+        for key, text in problems:
+            bar = QtWidgets.QFrame()
+            bar.setObjectName("group")
+            lay = QtWidgets.QHBoxLayout(bar)
+            lab = QtWidgets.QLabel("⚠  " + text)
+            lab.setWordWrap(True)
+            lay.addWidget(lab, 1)
+            if key == "spooler-aus":
+                btn = QtWidgets.QPushButton(tr("Einschalten"))
+                btn.setObjectName("primary")
+
+                def enable(_=False, b=bar):
+                    self.status.showMessage(tr("Windows fragt gleich nach Administratorrechten …"))
+                    bg(win_enable_spooler, lambda ok, res, b=b: (
+                        b.hide() if ok else None,
+                        self.status.showMessage(tr("Druckwarteschlange läuft.") if ok
+                                                else tr("Fehlgeschlagen: {0}", res)),
+                        ok and QtCore.QTimer.singleShot(1000, self.search)))
+                btn.clicked.connect(enable)
+                lay.addWidget(btn)
+            self.banner.addWidget(bar)
 
     def install_packages(self, pkgs, bar):
         self.status.showMessage(tr("Installiere ") + " ".join(pkgs) + tr(" …"))

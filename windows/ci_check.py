@@ -41,3 +41,15 @@ assert "PrintDock-Test" in names, "Drucker ohne IPP wurde nicht angelegt"
 pd.remove_queue("PrintDock-Test")
 pd.powershell("Remove-PrinterPort -Name 'IP_192.0.2.10'")
 print("ok (ohne IPP)")
+
+# Abgespeckte Windows-Versionen: ausgeschaltete Druckwarteschlange erkennen und wieder einschalten
+print("Gesundheit vorher:", pd.win_health())
+pd.powershell("Stop-Service -Name Spooler -Force; Set-Service -Name Spooler -StartupType Disabled")
+h = pd.win_health()
+print("Spooler aus:", h)
+assert any(k == "spooler-aus" for k, _ in h), "ausgeschaltete Druckwarteschlange nicht erkannt"
+pd.win_enable_spooler()
+h = pd.win_health()
+print("nach Einschalten:", h)
+assert not any(k.startswith("spooler") for k, _ in h), "Druckwarteschlange laeuft nicht wieder"
+print("ok (abgespeckt)")

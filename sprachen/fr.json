@@ -481,5 +481,13 @@
  "Unter {0} antwortet kein Drucker. Ist er eingeschaltet und die Adresse richtig?": "Aucune imprimante ne répond à {0}. Est-elle allumée et l'adresse est-elle correcte ?",
  "Treiber wählen": "Choisir le pilote",
  "Der Drucker versteht kein IPP. Welcher Windows-Treiber soll ihn ansteuern?\n„Microsoft PCL6 Class Driver“ passt für die meisten Laserdrucker, „Microsoft PS Class Driver“ für PostScript-Geräte. Beim Einrichten fragt Windows nach Administratorrechten.": "L'imprimante ne comprend pas IPP. Quel pilote Windows doit la piloter ?\n« Microsoft PCL6 Class Driver » convient à la plupart des imprimantes laser, « Microsoft PS Class Driver » aux appareils PostScript. Pendant l'installation, Windows demande des droits d'administrateur.",
- "abgebrochen": "annulé"
+ "abgebrochen": "annulé",
+ "Alternativ in Windows: Einstellungen → Bluetooth und Geräte → Drucker und Scanner → Gerät hinzufügen.": "Sinon dans Windows : Paramètres → Bluetooth et appareils → Imprimantes et scanners → Ajouter un appareil.",
+ "PowerShell fehlt in dieser Windows-Version. Drucker zeigt PrintDock trotzdem an; einrichten geht dann nur über die Windows-Einstellungen.": "PowerShell manque dans cette version de Windows. PrintDock affiche quand même les imprimantes ; leur installation ne passe alors que par les paramètres de Windows.",
+ "In dieser Windows-Version fehlt die Druckwarteschlange. Drucken geht erst mit einer Windows-Version, die Drucken enthält; Scannen und Füllstände gehen trotzdem.": "Cette version de Windows n'a pas de spouleur d'impression. L'impression ne fonctionne qu'avec une version de Windows qui l'inclut ; la numérisation et les niveaux fonctionnent quand même.",
+ "Die Windows-Druckwarteschlange ist ausgeschaltet – das machen abgespeckte Windows-Versionen oft. Ohne sie kann Windows nicht drucken.": "Le spouleur d'impression de Windows est désactivé – c'est fréquent sur les versions allégées de Windows. Sans lui, Windows ne peut pas imprimer.",
+ "Die Windows-Druckbefehle fehlen. Drucker richtest du dann über die Windows-Einstellungen ein; Füllstände und Scannen gehen trotzdem.": "Les commandes d'impression de Windows manquent. Installez alors les imprimantes via les paramètres de Windows ; les niveaux et la numérisation fonctionnent quand même.",
+ "Einschalten": "Activer",
+ "Windows fragt gleich nach Administratorrechten …": "Windows va demander des droits d'administrateur …",
+ "Druckwarteschlange läuft.": "Le spouleur d'impression fonctionne."
 }

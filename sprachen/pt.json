@@ -481,5 +481,13 @@
  "Unter {0} antwortet kein Drucker. Ist er eingeschaltet und die Adresse richtig?": "Nenhuma impressora responde em {0}. Está ligada e o endereço está correto?",
  "Treiber wählen": "Escolher controlador",
  "Der Drucker versteht kein IPP. Welcher Windows-Treiber soll ihn ansteuern?\n„Microsoft PCL6 Class Driver“ passt für die meisten Laserdrucker, „Microsoft PS Class Driver“ für PostScript-Geräte. Beim Einrichten fragt Windows nach Administratorrechten.": "A impressora não entende IPP. Que controlador do Windows a deve controlar?\n“Microsoft PCL6 Class Driver” serve para a maioria das impressoras laser, “Microsoft PS Class Driver” para dispositivos PostScript. Ao configurar, o Windows pede direitos de administrador.",
- "abgebrochen": "cancelado"
+ "abgebrochen": "cancelado",
+ "Alternativ in Windows: Einstellungen → Bluetooth und Geräte → Drucker und Scanner → Gerät hinzufügen.": "Em alternativa no Windows: Definições → Bluetooth e dispositivos → Impressoras e scanners → Adicionar dispositivo.",
+ "PowerShell fehlt in dieser Windows-Version. Drucker zeigt PrintDock trotzdem an; einrichten geht dann nur über die Windows-Einstellungen.": "Falta o PowerShell nesta versão do Windows. O PrintDock mostra as impressoras na mesma; configurá-las só é possível nas definições do Windows.",
+ "In dieser Windows-Version fehlt die Druckwarteschlange. Drucken geht erst mit einer Windows-Version, die Drucken enthält; Scannen und Füllstände gehen trotzdem.": "Esta versão do Windows não tem spooler de impressão. Só é possível imprimir com uma versão do Windows que inclua impressão; digitalização e níveis funcionam na mesma.",
+ "Die Windows-Druckwarteschlange ist ausgeschaltet – das machen abgespeckte Windows-Versionen oft. Ohne sie kann Windows nicht drucken.": "O spooler de impressão do Windows está desligado – as versões reduzidas do Windows fazem isso muitas vezes. Sem ele o Windows não consegue imprimir.",
+ "Die Windows-Druckbefehle fehlen. Drucker richtest du dann über die Windows-Einstellungen ein; Füllstände und Scannen gehen trotzdem.": "Faltam os comandos de impressão do Windows. Configure então as impressoras nas definições do Windows; níveis e digitalização funcionam na mesma.",
+ "Einschalten": "Ligar",
+ "Windows fragt gleich nach Administratorrechten …": "O Windows vai pedir direitos de administrador …",
+ "Druckwarteschlange läuft.": "O spooler de impressão está a funcionar."
 }

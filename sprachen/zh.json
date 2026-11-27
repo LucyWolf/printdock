@@ -481,5 +481,13 @@
  "Unter {0} antwortet kein Drucker. Ist er eingeschaltet und die Adresse richtig?": "{0} 没有打印机响应。打印机是否已开机，地址是否正确？",
  "Treiber wählen": "选择驱动程序",
  "Der Drucker versteht kein IPP. Welcher Windows-Treiber soll ihn ansteuern?\n„Microsoft PCL6 Class Driver“ passt für die meisten Laserdrucker, „Microsoft PS Class Driver“ für PostScript-Geräte. Beim Einrichten fragt Windows nach Administratorrechten.": "此打印机不支持 IPP。应由哪个 Windows 驱动程序控制它？\n“Microsoft PCL6 Class Driver”适用于大多数激光打印机，“Microsoft PS Class Driver”适用于 PostScript 设备。设置时 Windows 会请求管理员权限。",
- "abgebrochen": "已取消"
+ "abgebrochen": "已取消",
+ "Alternativ in Windows: Einstellungen → Bluetooth und Geräte → Drucker und Scanner → Gerät hinzufügen.": "也可以在 Windows 中：设置 → 蓝牙和其他设备 → 打印机和扫描仪 → 添加设备。",
+ "PowerShell fehlt in dieser Windows-Version. Drucker zeigt PrintDock trotzdem an; einrichten geht dann nur über die Windows-Einstellungen.": "此 Windows 版本缺少 PowerShell。PrintDock 仍会显示打印机；但只能通过 Windows 设置来设置打印机。",
+ "In dieser Windows-Version fehlt die Druckwarteschlange. Drucken geht erst mit einer Windows-Version, die Drucken enthält; Scannen und Füllstände gehen trotzdem.": "此 Windows 版本没有打印后台处理程序。只有包含打印功能的 Windows 版本才能打印；扫描和余量仍可使用。",
+ "Die Windows-Druckwarteschlange ist ausgeschaltet – das machen abgespeckte Windows-Versionen oft. Ohne sie kann Windows nicht drucken.": "Windows 打印后台处理程序已关闭 – 精简版 Windows 经常这样做。没有它 Windows 无法打印。",
+ "Die Windows-Druckbefehle fehlen. Drucker richtest du dann über die Windows-Einstellungen ein; Füllstände und Scannen gehen trotzdem.": "缺少 Windows 打印命令。请通过 Windows 设置来设置打印机；余量和扫描仍可使用。",
+ "Einschalten": "开启",
+ "Windows fragt gleich nach Administratorrechten …": "Windows 稍后会请求管理员权限 …",
+ "Druckwarteschlange läuft.": "打印后台处理程序正在运行。"
 }

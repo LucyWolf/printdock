@@ -481,5 +481,13 @@
  "Unter {0} antwortet kein Drucker. Ist er eingeschaltet und die Adresse richtig?": "No printer answers at {0}. Is it switched on and is the address right?",
  "Treiber wählen": "Choose driver",
  "Der Drucker versteht kein IPP. Welcher Windows-Treiber soll ihn ansteuern?\n„Microsoft PCL6 Class Driver“ passt für die meisten Laserdrucker, „Microsoft PS Class Driver“ für PostScript-Geräte. Beim Einrichten fragt Windows nach Administratorrechten.": "The printer does not understand IPP. Which Windows driver should control it?\n“Microsoft PCL6 Class Driver” fits most laser printers, “Microsoft PS Class Driver” fits PostScript devices. During setup Windows asks for administrator rights.",
- "abgebrochen": "cancelled"
+ "abgebrochen": "cancelled",
+ "Alternativ in Windows: Einstellungen → Bluetooth und Geräte → Drucker und Scanner → Gerät hinzufügen.": "Alternatively in Windows: Settings → Bluetooth & devices → Printers & scanners → Add device.",
+ "PowerShell fehlt in dieser Windows-Version. Drucker zeigt PrintDock trotzdem an; einrichten geht dann nur über die Windows-Einstellungen.": "PowerShell is missing in this Windows version. PrintDock still shows printers; setting them up then only works through the Windows settings.",
+ "In dieser Windows-Version fehlt die Druckwarteschlange. Drucken geht erst mit einer Windows-Version, die Drucken enthält; Scannen und Füllstände gehen trotzdem.": "This Windows version has no print spooler. Printing only works with a Windows version that includes printing; scanning and levels still work.",
+ "Die Windows-Druckwarteschlange ist ausgeschaltet – das machen abgespeckte Windows-Versionen oft. Ohne sie kann Windows nicht drucken.": "The Windows print spooler is switched off – stripped-down Windows versions often do that. Without it Windows cannot print.",
+ "Die Windows-Druckbefehle fehlen. Drucker richtest du dann über die Windows-Einstellungen ein; Füllstände und Scannen gehen trotzdem.": "The Windows print commands are missing. Set up printers through the Windows settings then; levels and scanning still work.",
+ "Einschalten": "Switch on",
+ "Windows fragt gleich nach Administratorrechten …": "Windows will ask for administrator rights in a moment …",
+ "Druckwarteschlange läuft.": "Print spooler is running."
 }

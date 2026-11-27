@@ -481,5 +481,13 @@
  "Unter {0} antwortet kein Drucker. Ist er eingeschaltet und die Adresse richtig?": "За адресою {0} принтер не відповідає. Він увімкнений і адреса правильна?",
  "Treiber wählen": "Вибір драйвера",
  "Der Drucker versteht kein IPP. Welcher Windows-Treiber soll ihn ansteuern?\n„Microsoft PCL6 Class Driver“ passt für die meisten Laserdrucker, „Microsoft PS Class Driver“ für PostScript-Geräte. Beim Einrichten fragt Windows nach Administratorrechten.": "Принтер не розуміє IPP. Який драйвер Windows має ним керувати?\n«Microsoft PCL6 Class Driver» підходить для більшості лазерних принтерів, «Microsoft PS Class Driver» – для пристроїв PostScript. Під час налаштування Windows запитає права адміністратора.",
- "abgebrochen": "скасовано"
+ "abgebrochen": "скасовано",
+ "Alternativ in Windows: Einstellungen → Bluetooth und Geräte → Drucker und Scanner → Gerät hinzufügen.": "Або у Windows: Параметри → Bluetooth і пристрої → Принтери та сканери → Додати пристрій.",
+ "PowerShell fehlt in dieser Windows-Version. Drucker zeigt PrintDock trotzdem an; einrichten geht dann nur über die Windows-Einstellungen.": "У цій версії Windows немає PowerShell. PrintDock усе одно показує принтери; налаштувати їх можна лише через параметри Windows.",
+ "In dieser Windows-Version fehlt die Druckwarteschlange. Drucken geht erst mit einer Windows-Version, die Drucken enthält; Scannen und Füllstände gehen trotzdem.": "У цій версії Windows немає диспетчера друку. Друк працює лише у версії Windows із підтримкою друку; сканування й рівні працюють і так.",
+ "Die Windows-Druckwarteschlange ist ausgeschaltet – das machen abgespeckte Windows-Versionen oft. Ohne sie kann Windows nicht drucken.": "Диспетчер друку Windows вимкнено – урізані версії Windows часто так роблять. Без нього Windows не може друкувати.",
+ "Die Windows-Druckbefehle fehlen. Drucker richtest du dann über die Windows-Einstellungen ein; Füllstände und Scannen gehen trotzdem.": "Немає команд друку Windows. Налаштовуйте принтери через параметри Windows; рівні й сканування працюють і так.",
+ "Einschalten": "Увімкнути",
+ "Windows fragt gleich nach Administratorrechten …": "Зараз Windows запитає права адміністратора …",
+ "Druckwarteschlange läuft.": "Диспетчер друку працює."
 }

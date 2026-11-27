@@ -481,5 +481,13 @@
  "Unter {0} antwortet kein Drucker. Ist er eingeschaltet und die Adresse richtig?": "Ninguna impresora responde en {0}. ¿Está encendida y la dirección es correcta?",
  "Treiber wählen": "Elegir controlador",
  "Der Drucker versteht kein IPP. Welcher Windows-Treiber soll ihn ansteuern?\n„Microsoft PCL6 Class Driver“ passt für die meisten Laserdrucker, „Microsoft PS Class Driver“ für PostScript-Geräte. Beim Einrichten fragt Windows nach Administratorrechten.": "La impresora no entiende IPP. ¿Qué controlador de Windows debe manejarla?\n«Microsoft PCL6 Class Driver» sirve para la mayoría de impresoras láser, «Microsoft PS Class Driver» para equipos PostScript. Al configurarla, Windows pide permisos de administrador.",
- "abgebrochen": "cancelado"
+ "abgebrochen": "cancelado",
+ "Alternativ in Windows: Einstellungen → Bluetooth und Geräte → Drucker und Scanner → Gerät hinzufügen.": "Si no, en Windows: Configuración → Bluetooth y dispositivos → Impresoras y escáneres → Agregar dispositivo.",
+ "PowerShell fehlt in dieser Windows-Version. Drucker zeigt PrintDock trotzdem an; einrichten geht dann nur über die Windows-Einstellungen.": "Falta PowerShell en esta versión de Windows. PrintDock muestra igualmente las impresoras; configurarlas solo es posible desde la configuración de Windows.",
+ "In dieser Windows-Version fehlt die Druckwarteschlange. Drucken geht erst mit einer Windows-Version, die Drucken enthält; Scannen und Füllstände gehen trotzdem.": "Esta versión de Windows no tiene cola de impresión. Solo se puede imprimir con una versión de Windows que incluya la impresión; el escaneo y los niveles funcionan igualmente.",
+ "Die Windows-Druckwarteschlange ist ausgeschaltet – das machen abgespeckte Windows-Versionen oft. Ohne sie kann Windows nicht drucken.": "La cola de impresión de Windows está desactivada: las versiones recortadas de Windows suelen hacerlo. Sin ella Windows no puede imprimir.",
+ "Die Windows-Druckbefehle fehlen. Drucker richtest du dann über die Windows-Einstellungen ein; Füllstände und Scannen gehen trotzdem.": "Faltan los comandos de impresión de Windows. Configura entonces las impresoras desde la configuración de Windows; los niveles y el escaneo funcionan igualmente.",
+ "Einschalten": "Activar",
+ "Windows fragt gleich nach Administratorrechten …": "Windows pedirá permisos de administrador en un momento …",
+ "Druckwarteschlange läuft.": "La cola de impresión está en marcha."
 }

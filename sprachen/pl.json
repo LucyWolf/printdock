@@ -481,5 +481,13 @@
  "Unter {0} antwortet kein Drucker. Ist er eingeschaltet und die Adresse richtig?": "Pod adresem {0} nie odpowiada żadna drukarka. Czy jest włączona i adres jest poprawny?",
  "Treiber wählen": "Wybierz sterownik",
  "Der Drucker versteht kein IPP. Welcher Windows-Treiber soll ihn ansteuern?\n„Microsoft PCL6 Class Driver“ passt für die meisten Laserdrucker, „Microsoft PS Class Driver“ für PostScript-Geräte. Beim Einrichten fragt Windows nach Administratorrechten.": "Drukarka nie obsługuje IPP. Który sterownik Windows ma nią sterować?\n„Microsoft PCL6 Class Driver” pasuje do większości drukarek laserowych, „Microsoft PS Class Driver” do urządzeń PostScript. Podczas konfiguracji Windows zapyta o uprawnienia administratora.",
- "abgebrochen": "przerwano"
+ "abgebrochen": "przerwano",
+ "Alternativ in Windows: Einstellungen → Bluetooth und Geräte → Drucker und Scanner → Gerät hinzufügen.": "Albo w Windows: Ustawienia → Bluetooth i urządzenia → Drukarki i skanery → Dodaj urządzenie.",
+ "PowerShell fehlt in dieser Windows-Version. Drucker zeigt PrintDock trotzdem an; einrichten geht dann nur über die Windows-Einstellungen.": "W tej wersji Windows brakuje PowerShell. PrintDock i tak pokazuje drukarki; skonfigurować je można wtedy tylko w ustawieniach Windows.",
+ "In dieser Windows-Version fehlt die Druckwarteschlange. Drucken geht erst mit einer Windows-Version, die Drucken enthält; Scannen und Füllstände gehen trotzdem.": "Ta wersja Windows nie ma bufora wydruku. Drukowanie działa dopiero w wersji Windows z obsługą drukowania; skanowanie i poziomy działają mimo to.",
+ "Die Windows-Druckwarteschlange ist ausgeschaltet – das machen abgespeckte Windows-Versionen oft. Ohne sie kann Windows nicht drucken.": "Bufor wydruku Windows jest wyłączony – odchudzone wersje Windows często tak robią. Bez niego Windows nie może drukować.",
+ "Die Windows-Druckbefehle fehlen. Drucker richtest du dann über die Windows-Einstellungen ein; Füllstände und Scannen gehen trotzdem.": "Brakuje poleceń drukowania Windows. Skonfiguruj wtedy drukarki w ustawieniach Windows; poziomy i skanowanie działają mimo to.",
+ "Einschalten": "Włącz",
+ "Windows fragt gleich nach Administratorrechten …": "Windows za chwilę zapyta o uprawnienia administratora …",
+ "Druckwarteschlange läuft.": "Bufor wydruku działa."
 }

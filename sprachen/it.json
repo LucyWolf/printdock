@@ -481,5 +481,13 @@
  "Unter {0} antwortet kein Drucker. Ist er eingeschaltet und die Adresse richtig?": "All'indirizzo {0} non risponde nessuna stampante. È accesa e l'indirizzo è corretto?",
  "Treiber wählen": "Scegli il driver",
  "Der Drucker versteht kein IPP. Welcher Windows-Treiber soll ihn ansteuern?\n„Microsoft PCL6 Class Driver“ passt für die meisten Laserdrucker, „Microsoft PS Class Driver“ für PostScript-Geräte. Beim Einrichten fragt Windows nach Administratorrechten.": "La stampante non capisce IPP. Quale driver di Windows deve gestirla?\n«Microsoft PCL6 Class Driver» va bene per la maggior parte delle stampanti laser, «Microsoft PS Class Driver» per i dispositivi PostScript. Durante la configurazione Windows chiede i diritti di amministratore.",
- "abgebrochen": "annullato"
+ "abgebrochen": "annullato",
+ "Alternativ in Windows: Einstellungen → Bluetooth und Geräte → Drucker und Scanner → Gerät hinzufügen.": "In alternativa in Windows: Impostazioni → Bluetooth e dispositivi → Stampanti e scanner → Aggiungi dispositivo.",
+ "PowerShell fehlt in dieser Windows-Version. Drucker zeigt PrintDock trotzdem an; einrichten geht dann nur über die Windows-Einstellungen.": "In questa versione di Windows manca PowerShell. PrintDock mostra comunque le stampanti; configurarle è possibile solo dalle impostazioni di Windows.",
+ "In dieser Windows-Version fehlt die Druckwarteschlange. Drucken geht erst mit einer Windows-Version, die Drucken enthält; Scannen und Füllstände gehen trotzdem.": "In questa versione di Windows manca lo spooler di stampa. Si può stampare solo con una versione di Windows che include la stampa; scansione e livelli funzionano comunque.",
+ "Die Windows-Druckwarteschlange ist ausgeschaltet – das machen abgespeckte Windows-Versionen oft. Ohne sie kann Windows nicht drucken.": "Lo spooler di stampa di Windows è disattivato – le versioni alleggerite di Windows lo fanno spesso. Senza di esso Windows non può stampare.",
+ "Die Windows-Druckbefehle fehlen. Drucker richtest du dann über die Windows-Einstellungen ein; Füllstände und Scannen gehen trotzdem.": "Mancano i comandi di stampa di Windows. Configura allora le stampanti dalle impostazioni di Windows; livelli e scansione funzionano comunque.",
+ "Einschalten": "Attiva",
+ "Windows fragt gleich nach Administratorrechten …": "Tra poco Windows chiederà i diritti di amministratore …",
+ "Druckwarteschlange läuft.": "Lo spooler di stampa è in funzione."
 }

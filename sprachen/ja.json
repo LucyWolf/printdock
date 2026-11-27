@@ -481,5 +481,13 @@
  "Unter {0} antwortet kein Drucker. Ist er eingeschaltet und die Adresse richtig?": "{0} で応答するプリンターがありません。電源は入っていて、アドレスは正しいですか？",
  "Treiber wählen": "ドライバーを選択",
  "Der Drucker versteht kein IPP. Welcher Windows-Treiber soll ihn ansteuern?\n„Microsoft PCL6 Class Driver“ passt für die meisten Laserdrucker, „Microsoft PS Class Driver“ für PostScript-Geräte. Beim Einrichten fragt Windows nach Administratorrechten.": "このプリンターは IPP に対応していません。どの Windows ドライバーで制御しますか？\n「Microsoft PCL6 Class Driver」は多くのレーザープリンター、「Microsoft PS Class Driver」は PostScript 機器に適しています。設定時に Windows が管理者権限を求めます。",
- "abgebrochen": "中止しました"
+ "abgebrochen": "中止しました",
+ "Alternativ in Windows: Einstellungen → Bluetooth und Geräte → Drucker und Scanner → Gerät hinzufügen.": "または Windows で：設定 → Bluetooth とデバイス → プリンターとスキャナー → デバイスを追加。",
+ "PowerShell fehlt in dieser Windows-Version. Drucker zeigt PrintDock trotzdem an; einrichten geht dann nur über die Windows-Einstellungen.": "この Windows には PowerShell がありません。プリンターは表示されますが、設定は Windows の設定画面からのみ行えます。",
+ "In dieser Windows-Version fehlt die Druckwarteschlange. Drucken geht erst mit einer Windows-Version, die Drucken enthält; Scannen und Füllstände gehen trotzdem.": "この Windows には印刷スプーラーがありません。印刷機能を含む Windows でのみ印刷できます。スキャンと残量表示は使えます。",
+ "Die Windows-Druckwarteschlange ist ausgeschaltet – das machen abgespeckte Windows-Versionen oft. Ohne sie kann Windows nicht drucken.": "Windows の印刷スプーラーがオフになっています – 軽量化された Windows でよくあります。これがないと Windows は印刷できません。",
+ "Die Windows-Druckbefehle fehlen. Drucker richtest du dann über die Windows-Einstellungen ein; Füllstände und Scannen gehen trotzdem.": "Windows の印刷コマンドがありません。プリンターは Windows の設定から追加してください。残量表示とスキャンは使えます。",
+ "Einschalten": "オンにする",
+ "Windows fragt gleich nach Administratorrechten …": "まもなく Windows が管理者権限を求めます …",
+ "Druckwarteschlange läuft.": "印刷スプーラーが動作しています。"
 }
