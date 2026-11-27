@@ -28,7 +28,7 @@ except ImportError:
     Image = None
 
 APP_NAME = "PrintDock"
-APP_VERSION = "1.0.45"
+APP_VERSION = "1.0.46"
 # Frueher „HP Druckzentrale“, dann „Druckzentrale“; migrate_old_install() zieht alte Installationen um.
 UPDATE_REPO = "LucyWolf/printdock"
 # Mit echten Geraeten ausprobiert (Modell, Verbindung, was geprueft wurde)
@@ -2693,7 +2693,13 @@ class MainWindow(QtWidgets.QMainWindow):
         save = QtWidgets.QPushButton("Speichern…")
         save.setObjectName("primary")
         save.clicked.connect(self.save_scan)
-        for w in (more, delete, clear):
+        rot_l = QtWidgets.QPushButton("↺")
+        rot_l.setToolTip("Ausgewählte Seiten nach links drehen")
+        rot_l.clicked.connect(lambda: self.rotate_pages(90))
+        rot_r = QtWidgets.QPushButton("↻")
+        rot_r.setToolTip("Ausgewählte Seiten nach rechts drehen")
+        rot_r.clicked.connect(lambda: self.rotate_pages(-90))
+        for w in (more, rot_l, rot_r, delete, clear):
             row.addWidget(w)
         row.addStretch(1)
         row.addWidget(self.save_fmt)
@@ -3106,6 +3112,26 @@ class MainWindow(QtWidgets.QMainWindow):
                 msg = f"Achtung: {len(fronts)} Vorderseiten, aber {len(backs)} Rückseiten – bitte prüfen."
             self.status.showMessage(msg)
         bg(lambda: scan(dev, mode, res, src, area, crop), done)
+
+    def rotate_pages(self, angle):
+        """Ausgewaehlte Seiten (sonst die angezeigte) um 90° drehen; positiv = nach links."""
+        items = self.page_view.selectedItems() or [x for x in [self.page_view.currentItem()] if x]
+        for item in items:
+            f = item.data(QtCore.Qt.UserRole)
+            self._rot_n = getattr(self, "_rot_n", 0) + 1
+            # neue Datei statt ueberschreiben: importierte Bilder gehoeren dem Benutzer
+            if not getattr(self, "_rot_dir", None):
+                self._rot_dir = tempfile.mkdtemp(prefix="dz-gedreht-")   # nur fuer diesen Benutzer lesbar
+            target = os.path.join(self._rot_dir, f"seite-{self._rot_n}.png")
+            Image.open(f).rotate(angle, expand=True).save(target)
+            item.setData(QtCore.Qt.UserRole, target)
+            item.setIcon(QtGui.QIcon(QtGui.QPixmap(target).scaled(260, 360, QtCore.Qt.KeepAspectRatio,
+                                                                   QtCore.Qt.SmoothTransformation)))
+        if items:
+            self.scan_saved = False
+            self.md_bar.hide()   # Zuordnung Vorder-/Rueckseite gilt nach dem Drehen nicht mehr
+            self.md_last = None
+            self.show_page(self.page_view.currentItem())
 
     def delete_pages(self):
         for item in self.page_view.selectedItems():
