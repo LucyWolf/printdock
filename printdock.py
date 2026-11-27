@@ -29,7 +29,7 @@ except ImportError:
     Image = None
 
 APP_NAME = "PrintDock"
-APP_VERSION = "1.0.50"
+APP_VERSION = "1.0.51"
 # Frueher „HP Druckzentrale“, dann „Druckzentrale“; migrate_old_install() zieht alte Installationen um.
 UPDATE_REPO = "LucyWolf/printdock"
 # Mit echten Geraeten ausprobiert (Modell, Verbindung, was geprueft wurde)
@@ -922,6 +922,8 @@ STANDARD_TEMPLATE = {
     "wartung": None,         # Liste erlaubter Wartungsauftraege, None = alles, was der Drucker anbietet
     "hinweise": [],
     "bild": None,            # Adresse eines Geraetebilds (https), wird nur geladen, nie mit der App verteilt
+    "farbe": None,           # False = druckt nur schwarzweiss, None = beim Drucker nachsehen
+    "scanner": None,         # "keiner", "glas", "einzug", "einzug-beidseitig"; None = beim Scanner nachsehen
 }
 
 
@@ -929,15 +931,30 @@ def template_slug(p):
     return re.sub(r"[^a-z0-9]+", "-", real_name(p).lower()).strip("-") or "drucker"
 
 
-def get_template(p):
-    """Gemerkte Vorlage des Druckers (ohne Netz); sonst Standard."""
+def read_json(path):
     try:
-        with open(os.path.join(TEMPLATE_DIR, template_slug(p) + ".json"), encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             data = json.load(f)
+        return data if isinstance(data, dict) else {}
     except (OSError, ValueError):
-        data = {}
+        return {}
+
+
+def own_template_path(p):
+    """Selbst beschriebener Drucker (Uebergang, bis es eine offizielle Vorlage gibt) – nur auf diesem PC."""
+    return os.path.join(TEMPLATE_DIR, template_slug(p) + ".eigen.json")
+
+
+def get_template(p):
+    """Offizielle Vorlage (gemerkt, ohne Netz); sonst die selbst beschriebene; sonst Standard."""
+    data = read_json(os.path.join(TEMPLATE_DIR, template_slug(p) + ".json"))
+    own = not data and os.path.exists(own_template_path(p))
+    if own:
+        data = read_json(own_template_path(p))
     # Hinweise gibt es je Sprache (hinweise_en, hinweise_fr …); die deutschen stehen unter „hinweise“
-    return dict(STANDARD_TEMPLATE, **{k: v for k, v in data.items() if k in STANDARD_TEMPLATE or k.startswith("hinweise_")})
+    tmpl = dict(STANDARD_TEMPLATE, **{k: v for k, v in data.items() if k in STANDARD_TEMPLATE or k.startswith("hinweise_")})
+    tmpl["eigene"] = own
+    return tmpl
 
 
 def template_hints(tmpl):
@@ -953,6 +970,7 @@ def fetch_template(p):
     """Passende Vorlage herunterladen und merken (auch „keine vorhanden“); einmal am Tag neu nachsehen,
     damit Ergaenzungen an der Vorlage auch bei schon eingebundenen Druckern ankommen."""
     path = os.path.join(TEMPLATE_DIR, template_slug(p) + ".json")
+    had_official = bool(read_json(path))
     try:
         fresh = time.time() - os.path.getmtime(path) < 86400
     except OSError:
@@ -974,6 +992,13 @@ def fetch_template(p):
             with open(tmp, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=1)
             os.replace(tmp, path)
+            if data and not had_official and os.path.exists(path):
+                # Es gibt jetzt eine offizielle Vorlage: sie loest die selbst beschriebene ab
+                p.newly_supported = True
+                try:
+                    os.remove(own_template_path(p))
+                except OSError:
+                    pass
     return get_template(p)
 
 
@@ -1152,6 +1177,69 @@ def setup_printers_batch(printers):
     if rc != 0:
         raise RuntimeError((err or out or "lpadmin").strip())
     return len(cmds)
+
+
+# ---------- Drucker melden ----------
+# Fuer Drucker ohne Vorlage: wer es ist (Hersteller, Modell, Produktnummer), nicht was er kann – das laesst sich mit
+# dem Modell nachschlagen. Gemeldet wird als GitHub-Issue; Seriennummer, Adresse und Namen bleiben immer draussen.
+REPORT_LABEL = "neuer-drucker"
+
+
+def strip_serial(device_id):
+    """IEEE-1284-Kennung ohne Seriennummer (SN:, SERN:, SERIALNUMBER:)."""
+    return ";".join(x for x in (device_id or "").split(";")
+                    if x.strip() and not re.match(r"\s*(SN|SERN|SERIALNUMBER)\s*:", x, re.I))
+
+
+def printer_report(p):
+    """Steckbrief eines Druckers als Markdown (title, body). Fragt das Geraet selbst; laeuft im Hintergrund."""
+    info = {"model": re.sub(r"\s+-\s+.*$", "", p.model or ""), "device_id": "", "firmware": "", "product": ""}
+    if p.host:
+        try:
+            a = device_attrs(p.host, ["printer-make-and-model", "printer-device-id", "printer-firmware-string-version"])
+            info["model"] = str(a.get("printer-make-and-model") or info["model"])
+            info["device_id"] = strip_serial(str(a.get("printer-device-id") or ""))
+            fw = a.get("printer-firmware-string-version")
+            info["firmware"] = ", ".join(map(str, fw)) if isinstance(fw, list) else str(fw or "")
+        except Exception:
+            pass
+        for scheme in ("https", "http"):   # HP: Produktnummer (z. B. A7F65A) aus der eingebauten Schnittstelle
+            try:
+                with urllib.request.urlopen(f"{scheme}://{p.host}/DevMgmt/ProductConfigDyn.xml", timeout=5,
+                                            context=_ssl_ctx() if scheme == "https" else None) as r:
+                    xml = r.read(300000).decode("utf-8", "replace")
+                m = re.search(r"<[\w:]*ProductNumber>([^<]+)<", xml)
+                if m:
+                    info["product"] = m.group(1).strip()
+                    break
+            except Exception:
+                continue
+    if not info["device_id"]:   # USB unter Linux: Hersteller und Modell stehen in der Adresse
+        usb = next((u for u in p.uris if u.startswith("usb://")), "")
+        m = re.match(r"usb://([^/?]+)/([^?]+)", usb)
+        if m:
+            info["device_id"] = f"MFG:{urllib.parse.unquote(m.group(1))};MDL:{urllib.parse.unquote(m.group(2))}"
+    name = info["model"] or real_name(p)
+    lines = [
+        "### Drucker / Printer",
+        f"- Modell (vom Gerät gemeldet) / model: `{name}`",
+        f"- Gerätekennung / IEEE 1284 ID: `{info['device_id'] or '–'}`",
+        f"- Produktnummer / product number: `{info['product'] or '–'}`",
+        f"- Firmware: `{info['firmware'] or '–'}`",
+        f"- Verbindung / connection: {p.connection}",
+        f"- Vorlage gesucht unter / template file: `vorlagen/{template_slug(p)}.json`",
+        "",
+        "### Umgebung / environment",
+        f"- PrintDock {APP_VERSION}, {'Windows' if WINDOWS else 'Linux'}, Sprache {LANG}",
+    ]
+    return f"Neuer Drucker: {name}", "\n".join(lines)
+
+
+def report_url(title, body, comment=""):
+    if comment.strip():
+        body += "\n\n### Anmerkung / note\n" + comment.strip()
+    q = urllib.parse.urlencode({"title": title, "body": body, "labels": REPORT_LABEL})
+    return f"https://github.com/{UPDATE_REPO}/issues/new?{q}"
 
 
 def setup_printer(p):
@@ -2528,6 +2616,22 @@ class MainWindow(QtWidgets.QMainWindow):
         self.ov_tmpl_label = QtWidgets.QLabel(tmpl.get("name", "Standard"))
         form.addRow(tr("Vorlage"), self.ov_tmpl_label)
         dl.addLayout(form)
+        rep_row = QtWidgets.QHBoxLayout()
+        if tmpl.get("name", "Standard") == "Standard" or tmpl.get("eigene"):
+            rep_note = QtWidgets.QLabel(tr("Selbst beschrieben – gilt, bis es eine offizielle Vorlage gibt.") if tmpl.get("eigene")
+                                        else tr("Für dieses Modell gibt es noch keine Vorlage."))
+            rep_note.setObjectName("dim")
+            rep_row.addWidget(rep_note, 1)
+        else:
+            rep_row.addStretch(1)
+        if tmpl.get("name", "Standard") == "Standard" or tmpl.get("eigene"):
+            own_btn = QtWidgets.QPushButton(tr("Eigenschaften festlegen…"))
+            own_btn.clicked.connect(lambda: self.edit_properties(p))
+            rep_row.addWidget(own_btn)
+        rep_btn = QtWidgets.QPushButton(tr("Drucker melden…"))
+        rep_btn.clicked.connect(lambda: self.report_printer(p))
+        rep_row.addWidget(rep_btn)
+        dl.addLayout(rep_row)
         self.ov_hints = QtWidgets.QVBoxLayout()
         dl.addLayout(self.ov_hints)
         self.ov_body.addWidget(dev)
@@ -2535,6 +2639,145 @@ class MainWindow(QtWidgets.QMainWindow):
         cached = self.status_cache.get(printer_key(p))
         if cached:
             self.fill_overview(cached)
+
+    def edit_properties(self, p):
+        """Drucker selbst beschreiben, solange es keine offizielle Vorlage gibt. Gilt nur auf diesem PC; kommt die
+        offizielle Vorlage, loest sie diese ab und PrintDock meldet, dass der Drucker aufgenommen ist."""
+        cur = get_template(p)
+        sup = (self.status_cache.get(printer_key(p)) or {}).get("supported", {})
+        d = QtWidgets.QDialog(self)
+        d.setWindowTitle(tr("Eigenschaften festlegen"))
+        d.setStyleSheet(make_qss())
+        lay = QtWidgets.QVBoxLayout(d)
+        intro = QtWidgets.QLabel(tr("Für „{0}“ gibt es noch keine Vorlage. Beschreibe ihn hier, dann kannst du ihn "
+                                    "sofort nutzen. Sobald es eine offizielle Vorlage gibt, übernimmt PrintDock sie "
+                                    "und sagt Bescheid.", real_name(p)))
+        intro.setWordWrap(True)
+        lay.addWidget(intro)
+        form = QtWidgets.QFormLayout()
+        color = QtWidgets.QCheckBox(tr("Druckt in Farbe"))
+        color.setChecked(cur.get("farbe") is not False and "color" in (sup.get("print-color-mode-supported") or ["color"]))
+        duplex = QtWidgets.QCheckBox(tr("Druckt selbst beidseitig"))
+        duplex.setChecked(bool(cur.get("beidseitig", True)) and
+                          "two-sided-long-edge" in (sup.get("sides-supported") or ["two-sided-long-edge"]))
+        fax = QtWidgets.QCheckBox(tr("Kann faxen"))
+        fax.setChecked(bool(cur.get("fax") if cur.get("fax") is not None else p.fax))
+        scan = QtWidgets.QComboBox()
+        for lbl, v in ((tr("Kein Scanner"), "keiner"), (tr("Nur Scannerglas"), "glas"),
+                       (tr("Scannerglas und Vorlageneinzug"), "einzug"),
+                       (tr("Vorlageneinzug kann beidseitig"), "einzug-beidseitig")):
+            scan.addItem(lbl, v)
+        guess = cur.get("scanner") or ("glas" if self.printer_has_scanner(p) else "keiner")
+        scan.setCurrentIndex(max(0, scan.findData(guess)))
+        paper = QtWidgets.QComboBox()
+        for lbl, v in (("A4", "iso_a4_210x297mm"), ("Letter", "na_letter_8.5x11in")):
+            paper.addItem(lbl, v)
+        paper.setCurrentIndex(max(0, paper.findData(cur.get("papier"))))
+        hints = QtWidgets.QPlainTextEdit("\n".join(cur.get("hinweise") or []) if cur.get("eigene") else "")
+        hints.setPlaceholderText(tr("Hinweise, eine Zeile je Hinweis (freiwillig)"))
+        hints.setMaximumHeight(80)
+        for w in (color, duplex, fax):
+            form.addRow("", w)
+        form.addRow(tr("Scanner"), scan)
+        form.addRow(tr("Papier"), paper)
+        form.addRow(tr("Hinweise"), hints)
+        lay.addLayout(form)
+        also = QtWidgets.QCheckBox(tr("Drucker auch an PrintDock melden, damit eine offizielle Vorlage entsteht"))
+        also.setChecked(not cur.get("eigene"))
+        lay.addWidget(also)
+        row = QtWidgets.QHBoxLayout()
+        cancel = QtWidgets.QPushButton(tr("Abbrechen"))
+        ok = QtWidgets.QPushButton(tr("Speichern"))
+        ok.setObjectName("primary")
+        row.addStretch(1)
+        row.addWidget(cancel)
+        row.addWidget(ok)
+        lay.addLayout(row)
+        cancel.clicked.connect(d.reject)
+        ok.clicked.connect(d.accept)
+        d.resize(520, 0)
+        if d.exec() != QtWidgets.QDialog.Accepted:
+            return
+        data = {"name": tr("Eigene Vorlage"), "beidseitig": duplex.isChecked(), "fax": fax.isChecked(),
+                "farbe": color.isChecked(), "scanner": scan.currentData(), "papier": paper.currentData(),
+                "hinweise": [x.strip() for x in hints.toPlainText().splitlines() if x.strip()]}
+        os.makedirs(TEMPLATE_DIR, exist_ok=True)
+        with open(own_template_path(p), "w", encoding="utf-8") as fh:
+            json.dump(data, fh, ensure_ascii=False, indent=1)
+        p.fax = data["fax"]
+        self.apply_template(p, get_template(p))
+        self.apply_supported((self.status_cache.get(printer_key(p)) or {}).get("supported", {}))
+        self.build_overview()
+        self.update_actions()
+        self.status.showMessage(tr("Gespeichert – gilt, bis es eine offizielle Vorlage gibt."))
+        if also.isChecked():
+            self.report_printer(p)
+
+    def report_printer(self, p):
+        """Steckbrief zeigen; Absenden oeffnet ein vorausgefuelltes GitHub-Issue (nichts geht ungesehen raus)."""
+        d = QtWidgets.QDialog(self)
+        d.setWindowTitle(tr("Drucker melden"))
+        d.setStyleSheet(make_qss())
+        d.resize(620, 520)
+        lay = QtWidgets.QVBoxLayout(d)
+        intro = QtWidgets.QLabel(tr("Damit wir eine Vorlage für diesen Drucker bauen können. Gesendet wird nur, was "
+                                    "unten steht – keine Seriennummer, keine Adresse, keine Namen."))
+        intro.setWordWrap(True)
+        lay.addWidget(intro)
+        text = QtWidgets.QPlainTextEdit(tr("Frage den Drucker …"))
+        text.setReadOnly(True)
+        lay.addWidget(text, 1)
+        lay.addWidget(QtWidgets.QLabel(tr("Anmerkung (freiwillig), z. B. was nicht geht:")))
+        note = QtWidgets.QPlainTextEdit()
+        note.setMaximumHeight(80)
+        lay.addWidget(note)
+        hint = QtWidgets.QLabel(tr("„Auf GitHub melden“ öffnet den Browser; dafür braucht es ein GitHub-Konto. "
+                                   "Ohne Konto: speichern und anders schicken."))
+        hint.setObjectName("dim")
+        hint.setWordWrap(True)
+        lay.addWidget(hint)
+        row = QtWidgets.QHBoxLayout()
+        save = QtWidgets.QPushButton(tr("Als Datei speichern…"))
+        cancel = QtWidgets.QPushButton(tr("Abbrechen"))
+        send = QtWidgets.QPushButton(tr("Auf GitHub melden"))
+        send.setObjectName("primary")
+        for b in (save, send):
+            b.setEnabled(False)
+        row.addWidget(save)
+        row.addStretch(1)
+        row.addWidget(cancel)
+        row.addWidget(send)
+        lay.addLayout(row)
+        result = {}
+
+        def done(ok, res):
+            if not ok:
+                text.setPlainText(tr("Fehler: {0}", res))
+                return
+            result["title"], result["body"] = res
+            text.setPlainText(res[0] + "\n\n" + res[1])
+            save.setEnabled(True)
+            send.setEnabled(True)
+
+        def do_send():
+            webbrowser.open(report_url(result["title"], result["body"], note.toPlainText()))
+            d.accept()
+            self.status.showMessage(tr("Im Browser abschicken – danke!"))
+
+        def do_save():
+            path, _ = QtWidgets.QFileDialog.getSaveFileName(d, tr("Als Datei speichern…"),
+                                                            os.path.join(os.path.expanduser("~"), "drucker.md"),
+                                                            "Markdown (*.md);;Text (*.txt)")
+            if path:
+                extra = ("\n\n### Anmerkung / note\n" + note.toPlainText().strip()) if note.toPlainText().strip() else ""
+                with open(path, "w", encoding="utf-8") as fh:
+                    fh.write(f"# {result['title']}\n\n{result['body']}{extra}\n")
+                self.status.showMessage(tr("Gespeichert: {0}", path))
+        send.clicked.connect(do_send)
+        save.clicked.connect(do_save)
+        cancel.clicked.connect(d.reject)
+        bg(lambda: printer_report(p), done)
+        d.exec()
 
     def fill_overview(self, res):
         if not getattr(self, "ov_state", None):
@@ -2620,6 +2863,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 pass
 
     def printer_has_scanner(self, p):
+        if (getattr(p, "template", None) or {}).get("scanner") == "keiner":
+            return False
         words = [w for w in re.findall(r"[a-z0-9]+", (p.model or p.title).lower())
                  if w not in ("hp", "series", "ipp", "everywhere") and len(w) > 2]
         return any(sum(w in (dev + desc).lower() for w in words) >= 1 for dev, desc in self.scanners)
@@ -3093,6 +3338,14 @@ class MainWindow(QtWidgets.QMainWindow):
         def done(ok, tmpl):
             if ok and p is self.current:
                 self.apply_template(p, tmpl)
+            if ok and getattr(p, "newly_supported", False):
+                p.newly_supported = False
+                msg = tr("Dein Drucker „{0}“ ist jetzt in PrintDock aufgenommen – die passende Vorlage wurde geladen.",
+                         self.nickname(p))
+                notify(APP_NAME, msg)
+                self.status.showMessage(msg)
+                if p is self.current:
+                    self.build_overview()
             if p is self.current:
                 self.check_fax(p)
             if ok and tmpl.get("bild") and not printer_image_path(p):
@@ -3102,6 +3355,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def apply_template(self, p, tmpl):
         p.template = tmpl
+        if tmpl.get("farbe") is False:   # laut Vorlage nur schwarzweiss
+            self.color.clear()
+            self.color.addItem(tr("Schwarzweiß"), "monochrome")
         if tmpl.get("fax") is not None:
             p.fax = bool(tmpl["fax"])
             self.sync_tiles()
@@ -3426,7 +3682,9 @@ class MainWindow(QtWidgets.QMainWindow):
         # Haken nur zeigen, wenn der Drucker beidseitig kann (umblaettern wie ein Buch)
         self.sides.setVisible("two-sided-long-edge" in sides)
         modes = sup.get("print-color-mode-supported") or ["color", "monochrome"]
-        fill(self.color, [(lbl, v) for v, lbl in (("color", "Farbe"), ("monochrome", "Schwarzweiß")) if v in modes])
+        if (getattr(self.current, "template", None) or {}).get("farbe") is False:
+            modes = ["monochrome"]
+        fill(self.color, [(tr(lbl), v) for v, lbl in (("color", "Farbe"), ("monochrome", "Schwarzweiß")) if v in modes])
         media = sup.get("media-supported") or ["iso_a4_210x297mm", "iso_a5_148x210mm", "na_letter_8.5x11in", "na_index-4x6_4x6in"]
         named = [(pretty_media(m), m) for m in media if not m.startswith("custom_")]
         named.sort(key=lambda x: x[0][1])
@@ -3437,7 +3695,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 items.append((label, m))
         fill(self.media, items, "iso_a4_210x297mm")
         qual = [str(q) for q in (sup.get("print-quality-supported") or [3, 4, 5])]
-        fill(self.quality, [(lbl, v) for v, lbl in (("4", "Normal"), ("3", "Entwurf"), ("5", "Hoch")) if v in qual], "4")
+        fill(self.quality, [(tr(lbl), v) for v, lbl in (("4", "Normal"), ("3", "Entwurf"), ("5", "Hoch")) if v in qual], "4")
 
     def add_print_files(self):
         files, _ = QtWidgets.QFileDialog.getOpenFileNames(self, tr("Dateien drucken"), os.path.expanduser("~"),
@@ -3992,6 +4250,11 @@ class MainWindow(QtWidgets.QMainWindow):
                 srcs, cur = opts["source"]
                 self.duplex_value = next((x for x in srcs if re.search(r"duplex", x, re.I)), None)
                 srcs = [x for x in srcs if not re.search(r"duplex", x, re.I)]
+                kind = (getattr(self.current, "template", None) or {}).get("scanner")
+                if kind == "glas":   # laut Vorlage kein Einzug
+                    srcs = [x for x in srcs if not self.is_feeder(x)] or srcs
+                if kind in ("glas", "einzug"):
+                    self.duplex_value = None
                 srcs.sort(key=lambda x: not re.search(r"adf|feeder", x, re.I))
                 opts["source"] = (srcs, cur if cur in srcs else (srcs[0] if srcs else ""))
             for key, combo, fallback in (("mode", self.scan_mode, ["Color", "Gray"]),
