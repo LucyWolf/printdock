@@ -469,5 +469,14 @@
  "Selbst beschrieben – gilt, bis es eine offizielle Vorlage gibt.": "あなたが設定 – 公式テンプレートができるまで有効です。",
  "Normal": "標準",
  "Entwurf": "下書き",
- "Hoch": "高品質"
+ "Hoch": "高品質",
+ "Drucker wird nicht gefunden oder nicht unterstützt?": "プリンターが見つからない、または対応していませんか？",
+ "Drucker von Hand hinzufügen…": "プリンターを手動で追加…",
+ "Drucker von Hand hinzufügen": "プリンターを手動で追加",
+ "Für Netzwerkdrucker, die die Suche nicht findet. Die IP-Adresse steht im Netzwerkbericht oder im Menü des Druckers.": "検索で見つからないネットワークプリンター用です。IP アドレスはプリンターのネットワークレポートまたはメニューに表示されます。",
+ "Hersteller und Modell": "メーカーとモデル",
+ "IP-Adresse": "IP アドレス",
+ "Bitte Modell und eine gültige IP-Adresse angeben.": "モデルと正しい IP アドレスを入力してください。",
+ "Prüfe …": "確認中 …",
+ "Unter {0} antwortet kein Drucker. Ist er eingeschaltet und die Adresse richtig?": "{0} で応答するプリンターがありません。電源は入っていて、アドレスは正しいですか？"
 }

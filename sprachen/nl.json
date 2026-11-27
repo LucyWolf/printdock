@@ -469,5 +469,14 @@
  "Selbst beschrieben – gilt, bis es eine offizielle Vorlage gibt.": "Door jou beschreven – geldt tot er een officieel sjabloon is.",
  "Normal": "Normaal",
  "Entwurf": "Concept",
- "Hoch": "Hoog"
+ "Hoch": "Hoog",
+ "Drucker wird nicht gefunden oder nicht unterstützt?": "Printer niet gevonden of niet ondersteund?",
+ "Drucker von Hand hinzufügen…": "Printer met de hand toevoegen…",
+ "Drucker von Hand hinzufügen": "Printer met de hand toevoegen",
+ "Für Netzwerkdrucker, die die Suche nicht findet. Die IP-Adresse steht im Netzwerkbericht oder im Menü des Druckers.": "Voor netwerkprinters die de zoekfunctie niet vindt. Het IP-adres staat in het netwerkrapport of in het menu van de printer.",
+ "Hersteller und Modell": "Fabrikant en model",
+ "IP-Adresse": "IP-adres",
+ "Bitte Modell und eine gültige IP-Adresse angeben.": "Geef het model en een geldig IP-adres op.",
+ "Prüfe …": "Controleren …",
+ "Unter {0} antwortet kein Drucker. Ist er eingeschaltet und die Adresse richtig?": "Op {0} antwoordt geen printer. Staat hij aan en klopt het adres?"
 }

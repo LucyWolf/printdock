@@ -469,5 +469,14 @@
  "Selbst beschrieben – gilt, bis es eine offizielle Vorlage gibt.": "Descrita por ti: vale hasta que haya una plantilla oficial.",
  "Normal": "Normal",
  "Entwurf": "Borrador",
- "Hoch": "Alta"
+ "Hoch": "Alta",
+ "Drucker wird nicht gefunden oder nicht unterstützt?": "¿No se encuentra la impresora o no es compatible?",
+ "Drucker von Hand hinzufügen…": "Añadir impresora a mano…",
+ "Drucker von Hand hinzufügen": "Añadir impresora a mano",
+ "Für Netzwerkdrucker, die die Suche nicht findet. Die IP-Adresse steht im Netzwerkbericht oder im Menü des Druckers.": "Para impresoras de red que la búsqueda no encuentra. La dirección IP aparece en el informe de red o en el menú de la impresora.",
+ "Hersteller und Modell": "Fabricante y modelo",
+ "IP-Adresse": "Dirección IP",
+ "Bitte Modell und eine gültige IP-Adresse angeben.": "Indica el modelo y una dirección IP válida.",
+ "Prüfe …": "Comprobando …",
+ "Unter {0} antwortet kein Drucker. Ist er eingeschaltet und die Adresse richtig?": "Ninguna impresora responde en {0}. ¿Está encendida y la dirección es correcta?"
 }

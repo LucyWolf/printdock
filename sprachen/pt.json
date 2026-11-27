@@ -469,5 +469,14 @@
  "Selbst beschrieben – gilt, bis es eine offizielle Vorlage gibt.": "Descrita por si – vale até haver um modelo oficial.",
  "Normal": "Normal",
  "Entwurf": "Rascunho",
- "Hoch": "Alta"
+ "Hoch": "Alta",
+ "Drucker wird nicht gefunden oder nicht unterstützt?": "Impressora não encontrada ou não suportada?",
+ "Drucker von Hand hinzufügen…": "Adicionar impressora à mão…",
+ "Drucker von Hand hinzufügen": "Adicionar impressora à mão",
+ "Für Netzwerkdrucker, die die Suche nicht findet. Die IP-Adresse steht im Netzwerkbericht oder im Menü des Druckers.": "Para impressoras de rede que a procura não encontra. O endereço IP está no relatório de rede ou no menu da impressora.",
+ "Hersteller und Modell": "Fabricante e modelo",
+ "IP-Adresse": "Endereço IP",
+ "Bitte Modell und eine gültige IP-Adresse angeben.": "Indique o modelo e um endereço IP válido.",
+ "Prüfe …": "A verificar …",
+ "Unter {0} antwortet kein Drucker. Ist er eingeschaltet und die Adresse richtig?": "Nenhuma impressora responde em {0}. Está ligada e o endereço está correto?"
 }

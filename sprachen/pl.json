@@ -469,5 +469,14 @@
  "Selbst beschrieben – gilt, bis es eine offizielle Vorlage gibt.": "Opisana przez ciebie – obowiązuje, dopóki nie będzie oficjalnego szablonu.",
  "Normal": "Normalna",
  "Entwurf": "Robocza",
- "Hoch": "Wysoka"
+ "Hoch": "Wysoka",
+ "Drucker wird nicht gefunden oder nicht unterstützt?": "Drukarka nie została znaleziona lub nie jest obsługiwana?",
+ "Drucker von Hand hinzufügen…": "Dodaj drukarkę ręcznie…",
+ "Drucker von Hand hinzufügen": "Dodaj drukarkę ręcznie",
+ "Für Netzwerkdrucker, die die Suche nicht findet. Die IP-Adresse steht im Netzwerkbericht oder im Menü des Druckers.": "Dla drukarek sieciowych, których wyszukiwanie nie znajduje. Adres IP jest w raporcie sieciowym lub w menu drukarki.",
+ "Hersteller und Modell": "Producent i model",
+ "IP-Adresse": "Adres IP",
+ "Bitte Modell und eine gültige IP-Adresse angeben.": "Podaj model i prawidłowy adres IP.",
+ "Prüfe …": "Sprawdzanie …",
+ "Unter {0} antwortet kein Drucker. Ist er eingeschaltet und die Adresse richtig?": "Pod adresem {0} nie odpowiada żadna drukarka. Czy jest włączona i adres jest poprawny?"
 }

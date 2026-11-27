@@ -469,5 +469,14 @@
  "Selbst beschrieben – gilt, bis es eine offizielle Vorlage gibt.": "Décrite par vous – valable jusqu'à ce qu'il existe un modèle officiel.",
  "Normal": "Normale",
  "Entwurf": "Brouillon",
- "Hoch": "Haute"
+ "Hoch": "Haute",
+ "Drucker wird nicht gefunden oder nicht unterstützt?": "Imprimante introuvable ou non prise en charge ?",
+ "Drucker von Hand hinzufügen…": "Ajouter une imprimante à la main…",
+ "Drucker von Hand hinzufügen": "Ajouter une imprimante à la main",
+ "Für Netzwerkdrucker, die die Suche nicht findet. Die IP-Adresse steht im Netzwerkbericht oder im Menü des Druckers.": "Pour les imprimantes réseau que la recherche ne trouve pas. L'adresse IP figure dans le rapport réseau ou le menu de l'imprimante.",
+ "Hersteller und Modell": "Fabricant et modèle",
+ "IP-Adresse": "Adresse IP",
+ "Bitte Modell und eine gültige IP-Adresse angeben.": "Indiquez le modèle et une adresse IP valide.",
+ "Prüfe …": "Vérification …",
+ "Unter {0} antwortet kein Drucker. Ist er eingeschaltet und die Adresse richtig?": "Aucune imprimante ne répond à {0}. Est-elle allumée et l'adresse est-elle correcte ?"
 }

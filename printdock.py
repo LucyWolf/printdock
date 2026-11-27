@@ -29,7 +29,7 @@ except ImportError:
     Image = None
 
 APP_NAME = "PrintDock"
-APP_VERSION = "1.0.52"
+APP_VERSION = "1.0.53"
 # Frueher „HP Druckzentrale“, dann „Druckzentrale“; migrate_old_install() zieht alte Installationen um.
 UPDATE_REPO = "LucyWolf/printdock"
 # Mit echten Geraeten ausprobiert (Modell, Verbindung, was geprueft wurde)
@@ -1869,6 +1869,11 @@ class SetupWizard(QtWidgets.QDialog):
         self.accept()
         QtCore.QTimer.singleShot(0, self.parent().server_login_dialog)
 
+    def use_manual(self):
+        QtCore.QSettings("printdock", "printdock").setValue("setup_done", True)
+        self.accept()
+        QtCore.QTimer.singleShot(0, self.parent().add_manual_printer)
+
     def __init__(self, parent):
         super().__init__(parent)
         self.setWindowTitle(tr("{0} – Einrichtung", APP_NAME))
@@ -1913,6 +1918,13 @@ class SetupWizard(QtWidgets.QDialog):
         srv_btn.clicked.connect(self.use_server)
         srv.addWidget(srv_btn)
         l1.addLayout(srv)
+        # Wird der Drucker nicht gefunden oder nicht unterstuetzt: von Hand anlegen und selbst beschreiben
+        man = QtWidgets.QHBoxLayout()
+        man.addWidget(QtWidgets.QLabel(tr("Drucker wird nicht gefunden oder nicht unterstützt?")), 1)
+        man_btn = QtWidgets.QPushButton(tr("Drucker von Hand hinzufügen…"))
+        man_btn.clicked.connect(self.use_manual)
+        man.addWidget(man_btn)
+        l1.addLayout(man)
         self.stack.addWidget(p1)
 
         # 2: Suche und Auswahl
@@ -2639,6 +2651,88 @@ class MainWindow(QtWidgets.QMainWindow):
         cached = self.status_cache.get(printer_key(p))
         if cached:
             self.fill_overview(cached)
+
+    def add_manual_printer(self):
+        """Netzwerkdrucker, den die Suche nicht findet: Modell und Adresse eintippen, selbst beschreiben, einrichten.
+        Spricht er IPP, wird er treiberlos eingerichtet; sonst ueber den klassischen Netzwerkanschluss (Port 9100)
+        mit dem passenden freien Treiber."""
+        d = QtWidgets.QDialog(self.top_parent())
+        d.setWindowTitle(tr("Drucker von Hand hinzufügen"))
+        d.setStyleSheet(make_qss())
+        lay = QtWidgets.QVBoxLayout(d)
+        intro = QtWidgets.QLabel(tr("Für Netzwerkdrucker, die die Suche nicht findet. Die IP-Adresse steht im "
+                                    "Netzwerkbericht oder im Menü des Druckers."))
+        intro.setWordWrap(True)
+        lay.addWidget(intro)
+        form = QtWidgets.QFormLayout()
+        model = QtWidgets.QLineEdit()
+        model.setPlaceholderText("Brother HL-L2350DW")
+        ip = QtWidgets.QLineEdit()
+        ip.setPlaceholderText("192.168.178.50")
+        form.addRow(tr("Hersteller und Modell"), model)
+        form.addRow(tr("IP-Adresse"), ip)
+        lay.addLayout(form)
+        warn = QtWidgets.QLabel()
+        warn.setWordWrap(True)
+        warn.setStyleSheet(f"color: {STATE_COLORS['err']};")
+        warn.hide()
+        lay.addWidget(warn)
+        row = QtWidgets.QHBoxLayout()
+        cancel = QtWidgets.QPushButton(tr("Abbrechen"))
+        go = QtWidgets.QPushButton(tr("Weiter"))
+        go.setObjectName("primary")
+        go.setDefault(True)
+        row.addStretch(1)
+        row.addWidget(cancel)
+        row.addWidget(go)
+        lay.addLayout(row)
+        cancel.clicked.connect(d.reject)
+        result = {}
+
+        def check():
+            host = ip.text().strip()
+            if not model.text().strip() or not re.fullmatch(r"[A-Za-z0-9.:-]+", host):
+                warn.setText(tr("Bitte Modell und eine gültige IP-Adresse angeben."))
+                warn.show()
+                return
+            go.setEnabled(False)
+            go.setText(tr("Prüfe …"))
+
+            def probe():
+                import socket
+                for port in (631, 9100):
+                    try:
+                        socket.create_connection((host, port), timeout=3).close()
+                        return port
+                    except OSError:
+                        continue
+                return None
+
+            def done(ok, port):
+                go.setEnabled(True)
+                go.setText(tr("Weiter"))
+                if not ok or not port:
+                    warn.setText(tr("Unter {0} antwortet kein Drucker. Ist er eingeschaltet und die Adresse richtig?", host))
+                    warn.show()
+                    return
+                result["host"], result["port"] = host, port
+                d.accept()
+            bg(probe, done)
+        go.clicked.connect(check)
+        d.resize(480, 0)
+        if d.exec() != QtWidgets.QDialog.Accepted:
+            return
+        p = Printer()
+        p.model = p.info = model.text().strip()
+        p.host = result["host"]
+        p.uris = [f"ipp://{p.host}:631/ipp/print" if result["port"] == 631 else f"socket://{p.host}:9100"]
+        if p not in self.printers:
+            self.printers.append(p)
+        self.current = p
+        self.fill_printer_list()
+        self.select(len(self.printers) - 1)
+        self.edit_properties(p)   # selbst beschreiben, auf Wunsch melden
+        self.setup_current()
 
     def edit_properties(self, p):
         """Drucker selbst beschreiben, solange es keine offizielle Vorlage gibt. Gilt nur auf diesem PC; kommt die

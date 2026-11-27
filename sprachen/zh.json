@@ -469,5 +469,14 @@
  "Selbst beschrieben – gilt, bis es eine offizielle Vorlage gibt.": "由你描述 – 在有官方模板之前有效。",
  "Normal": "普通",
  "Entwurf": "草稿",
- "Hoch": "高"
+ "Hoch": "高",
+ "Drucker wird nicht gefunden oder nicht unterstützt?": "找不到打印机或不受支持？",
+ "Drucker von Hand hinzufügen…": "手动添加打印机…",
+ "Drucker von Hand hinzufügen": "手动添加打印机",
+ "Für Netzwerkdrucker, die die Suche nicht findet. Die IP-Adresse steht im Netzwerkbericht oder im Menü des Druckers.": "用于搜索找不到的网络打印机。IP 地址可在打印机的网络报告或菜单中找到。",
+ "Hersteller und Modell": "制造商和型号",
+ "IP-Adresse": "IP 地址",
+ "Bitte Modell und eine gültige IP-Adresse angeben.": "请输入型号和有效的 IP 地址。",
+ "Prüfe …": "正在检查 …",
+ "Unter {0} antwortet kein Drucker. Ist er eingeschaltet und die Adresse richtig?": "{0} 没有打印机响应。打印机是否已开机，地址是否正确？"
 }

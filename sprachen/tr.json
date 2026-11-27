@@ -469,5 +469,14 @@
  "Selbst beschrieben – gilt, bis es eine offizielle Vorlage gibt.": "Sizin tanımınız – resmi bir şablon çıkana kadar geçerli.",
  "Normal": "Normal",
  "Entwurf": "Taslak",
- "Hoch": "Yüksek"
+ "Hoch": "Yüksek",
+ "Drucker wird nicht gefunden oder nicht unterstützt?": "Yazıcı bulunamadı veya desteklenmiyor mu?",
+ "Drucker von Hand hinzufügen…": "Yazıcıyı elle ekle…",
+ "Drucker von Hand hinzufügen": "Yazıcıyı elle ekle",
+ "Für Netzwerkdrucker, die die Suche nicht findet. Die IP-Adresse steht im Netzwerkbericht oder im Menü des Druckers.": "Aramanın bulamadığı ağ yazıcıları için. IP adresi yazıcının ağ raporunda veya menüsünde yazar.",
+ "Hersteller und Modell": "Üretici ve model",
+ "IP-Adresse": "IP adresi",
+ "Bitte Modell und eine gültige IP-Adresse angeben.": "Lütfen modeli ve geçerli bir IP adresi girin.",
+ "Prüfe …": "Denetleniyor …",
+ "Unter {0} antwortet kein Drucker. Ist er eingeschaltet und die Adresse richtig?": "{0} adresinde yanıt veren yazıcı yok. Açık mı ve adres doğru mu?"
 }

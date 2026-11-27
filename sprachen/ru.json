@@ -469,5 +469,14 @@
  "Selbst beschrieben – gilt, bis es eine offizielle Vorlage gibt.": "Описан вами – действует, пока нет официального шаблона.",
  "Normal": "Обычное",
  "Entwurf": "Черновик",
- "Hoch": "Высокое"
+ "Hoch": "Высокое",
+ "Drucker wird nicht gefunden oder nicht unterstützt?": "Принтер не найден или не поддерживается?",
+ "Drucker von Hand hinzufügen…": "Добавить принтер вручную…",
+ "Drucker von Hand hinzufügen": "Добавить принтер вручную",
+ "Für Netzwerkdrucker, die die Suche nicht findet. Die IP-Adresse steht im Netzwerkbericht oder im Menü des Druckers.": "Для сетевых принтеров, которые не находит поиск. IP-адрес указан в сетевом отчёте или в меню принтера.",
+ "Hersteller und Modell": "Производитель и модель",
+ "IP-Adresse": "IP-адрес",
+ "Bitte Modell und eine gültige IP-Adresse angeben.": "Укажите модель и правильный IP-адрес.",
+ "Prüfe …": "Проверка …",
+ "Unter {0} antwortet kein Drucker. Ist er eingeschaltet und die Adresse richtig?": "По адресу {0} принтер не отвечает. Он включён и адрес верный?"
 }

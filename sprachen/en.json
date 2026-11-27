@@ -469,5 +469,14 @@
  "Selbst beschrieben – gilt, bis es eine offizielle Vorlage gibt.": "Described by you – applies until there is an official template.",
  "Normal": "Normal",
  "Entwurf": "Draft",
- "Hoch": "High"
+ "Hoch": "High",
+ "Drucker wird nicht gefunden oder nicht unterstützt?": "Printer not found or not supported?",
+ "Drucker von Hand hinzufügen…": "Add printer by hand…",
+ "Drucker von Hand hinzufügen": "Add printer by hand",
+ "Für Netzwerkdrucker, die die Suche nicht findet. Die IP-Adresse steht im Netzwerkbericht oder im Menü des Druckers.": "For network printers that the search does not find. The IP address is in the printer's network report or menu.",
+ "Hersteller und Modell": "Manufacturer and model",
+ "IP-Adresse": "IP address",
+ "Bitte Modell und eine gültige IP-Adresse angeben.": "Please enter the model and a valid IP address.",
+ "Prüfe …": "Checking …",
+ "Unter {0} antwortet kein Drucker. Ist er eingeschaltet und die Adresse richtig?": "No printer answers at {0}. Is it switched on and is the address right?"
 }

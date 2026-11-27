@@ -469,5 +469,14 @@
  "Selbst beschrieben – gilt, bis es eine offizielle Vorlage gibt.": "Descritta da te – vale finché non esiste un modello ufficiale.",
  "Normal": "Normale",
  "Entwurf": "Bozza",
- "Hoch": "Alta"
+ "Hoch": "Alta",
+ "Drucker wird nicht gefunden oder nicht unterstützt?": "Stampante non trovata o non supportata?",
+ "Drucker von Hand hinzufügen…": "Aggiungi stampante a mano…",
+ "Drucker von Hand hinzufügen": "Aggiungi stampante a mano",
+ "Für Netzwerkdrucker, die die Suche nicht findet. Die IP-Adresse steht im Netzwerkbericht oder im Menü des Druckers.": "Per stampanti di rete che la ricerca non trova. L'indirizzo IP è nel rapporto di rete o nel menu della stampante.",
+ "Hersteller und Modell": "Produttore e modello",
+ "IP-Adresse": "Indirizzo IP",
+ "Bitte Modell und eine gültige IP-Adresse angeben.": "Indica il modello e un indirizzo IP valido.",
+ "Prüfe …": "Verifica …",
+ "Unter {0} antwortet kein Drucker. Ist er eingeschaltet und die Adresse richtig?": "All'indirizzo {0} non risponde nessuna stampante. È accesa e l'indirizzo è corretto?"
 }
