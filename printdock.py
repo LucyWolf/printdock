@@ -28,7 +28,7 @@ except ImportError:
     Image = None
 
 APP_NAME = "PrintDock"
-APP_VERSION = "1.0.46"
+APP_VERSION = "1.0.47"
 # Frueher „HP Druckzentrale“, dann „Druckzentrale“; migrate_old_install() zieht alte Installationen um.
 UPDATE_REPO = "LucyWolf/printdock"
 # Mit echten Geraeten ausprobiert (Modell, Verbindung, was geprueft wurde)
@@ -317,11 +317,40 @@ REASONS_DE = {
     "marker-supply-empty": "Tinte leer", "toner-low": "Toner fast leer", "toner-empty": "Toner leer",
     "offline": "Drucker ist ausgeschaltet oder nicht im Netz", "paused": "Angehalten", "connecting-to-device": "Verbindet…",
     "input-tray-missing": "Papierfach fehlt", "output-area-full": "Ausgabefach voll",
+    # weitere Standardmeldungen (IPP/PWG), die Drucker melden koennen
+    "media-low": "Papier fast leer", "interlock-open": "Klappe offen", "output-tray-missing": "Ausgabefach fehlt",
+    "output-area-almost-full": "Ausgabefach fast voll", "marker-waste-almost-full": "Resttintenbehälter fast voll",
+    "marker-waste-full": "Resttintenbehälter voll", "opc-near-eol": "Bildtrommel bald verbraucht",
+    "opc-life-over": "Bildtrommel verbraucht", "developer-low": "Entwickler fast leer",
+    "developer-empty": "Entwickler leer", "fuser-over-temp": "Fixiereinheit zu heiß",
+    "fuser-under-temp": "Fixiereinheit heizt auf", "spool-area-full": "Druckspeicher voll",
+    "shutdown": "Drucker fährt herunter", "timed-out": "Drucker antwortet nicht",
+    "stopped-partly": "Teilweise angehalten", "stopping": "Hält an", "moving-to-paused": "Wird angehalten",
+    "media-path-cannot-duplex-media-selected": "Dieses Papier kann nicht beidseitig bedruckt werden",
+    "toner-almost-empty": "Toner fast leer", "ink-low": "Tinte fast leer", "ink-empty": "Tinte leer",
 }
+# Diese Meldungen sind so wichtig, dass PrintDock beim ersten Auftreten zusaetzlich eine Desktop-Mitteilung zeigt
+REASONS_URGENT = {"media-jam", "media-empty", "media-needed", "door-open", "cover-open", "interlock-open",
+                  "input-tray-missing", "output-area-full", "marker-supply-empty", "toner-empty", "ink-empty",
+                  "marker-waste-full", "opc-life-over"}
+
+
+def reason_base(r):
+    return re.sub(r"-(report|warning|error)$", "", r)
+
+
+def notify(title, text):
+    """Desktop-Mitteilung (KDE, GNOME …); fehlt notify-send, bleibt es bei der Anzeige im Fenster."""
+    if shutil.which("notify-send"):
+        try:
+            subprocess.Popen(["notify-send", "-a", APP_NAME, "-i", "printer", title, text],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError:
+            pass
 
 
 def reason_text(r):
-    base = re.sub(r"-(report|warning|error)$", "", r)
+    base = reason_base(r)
     return REASONS_DE.get(base, base)
 
 
@@ -886,8 +915,21 @@ def scan(dev, mode, res, source, area=None, crop=False):
     return files
 
 
-def adf_loaded(ip):
-    """eSCL: liegt Papier im Vorlageneinzug? True/False, None wenn unbekannt."""
+# Zustaende des Vorlageneinzugs laut eSCL (ScannerStatus/AdfState); fehlt ein Eintrag, ist es kein Problem
+ADF_PROBLEMS = {
+    "ScannerAdfJam": "Papierstau im Vorlageneinzug – Klappe oben öffnen und das Blatt in Laufrichtung herausziehen.",
+    "ScannerAdfHatchOpen": "Die Klappe des Vorlageneinzugs ist offen.",
+    "ScannerAdfMispick": "Der Einzug hat kein Blatt gegriffen – Stapel neu einlegen.",
+    "ScannerAdfMultipickDetected": "Mehrere Blätter auf einmal eingezogen – Stapel auffächern und neu einlegen.",
+    "ScannerAdfDuplexPageTooShort": "Blatt zu kurz zum Wenden – „Beidseitig von Hand“ benutzen.",
+    "ScannerAdfDuplexPageTooLong": "Blatt zu lang zum Wenden – „Beidseitig von Hand“ benutzen.",
+    "ScannerAdfInputTrayFailed": "Der Vorlageneinzug meldet einen Defekt.",
+    "ScannerAdfInputTrayOverloaded": "Zu viele Blätter im Vorlageneinzug.",
+}
+
+
+def adf_state(ip):
+    """eSCL-Zustand des Vorlageneinzugs (z. B. „ScannerAdfLoaded“, „ScannerAdfJam“), None wenn unbekannt."""
     import ssl
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
@@ -896,10 +938,18 @@ def adf_loaded(ip):
         try:
             with urllib.request.urlopen(url, timeout=4, context=ctx if url.startswith("https") else None) as r:
                 m = re.search(rb"<scan:AdfState>(\w+)</scan:AdfState>", r.read())
-            return None if not m else m.group(1) == b"ScannerAdfLoaded"
+            return m.group(1).decode() if m else None
         except Exception:
             continue
     return None
+
+
+def adf_loaded(ip):
+    """Liegt Papier im Vorlageneinzug? True/False, None wenn unbekannt oder gestoert."""
+    st = adf_state(ip)
+    if st is None or st in ADF_PROBLEMS:
+        return None
+    return st == "ScannerAdfLoaded"
 
 
 def escl_caps(ip):
@@ -1410,6 +1460,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.scanners = []
         self.pages = []          # PNG-Dateien der aktuellen Scans
         self.scan_saved = True   # False, solange gescannte Seiten nicht gespeichert sind
+        self.urgent_seen = {}    # je Drucker: schon gemeldete dringende Meldungen (fuer Desktop-Mitteilungen)
         self.scan_dpi = "300"
         self.status_cache = {}   # Drucker-Schluessel -> letzter Status
         self.settings = QtCore.QSettings("printdock", "printdock")
@@ -1716,9 +1767,13 @@ class MainWindow(QtWidgets.QMainWindow):
             h = QtWidgets.QLabel("Meldungen")
             h.setObjectName("h2")
             self.ov_msgs.addWidget(h)
-            for t in texts:
+            reasons = res.get("reasons", [])
+            for i, t in enumerate(texts):
+                r = reasons[i] if i < len(reasons) else ""
+                bad = r.endswith("-error") or reason_base(r) in REASONS_URGENT
                 lab = QtWidgets.QLabel(f"⚠  {t}")
-                lab.setStyleSheet(f"color: {STATE_COLORS['warn']};")
+                lab.setWordWrap(True)
+                lab.setStyleSheet(f"color: {STATE_COLORS['err' if bad else 'warn']};")
                 self.ov_msgs.addWidget(lab)
             self.ov_msgs_box.setVisible(bool(texts))
             self.fill_features(res)
@@ -2179,7 +2234,14 @@ class MainWindow(QtWidgets.QMainWindow):
             if not ok:
                 res = {"state": "", "reasons": [], "message": f"Status nicht abrufbar: {res}", "markers": [],
                        "supported": {}}
-            self.status_cache[printer_key(p)] = res
+            key = printer_key(p)
+            urgent = {reason_base(r) for r in res.get("reasons", []) if reason_base(r) in REASONS_URGENT}
+            seen = self.urgent_seen.get(key)
+            if seen is not None:   # beim allerersten Abruf nichts melden, das steht ohnehin im Fenster
+                for r in sorted(urgent - seen):
+                    notify(self.nickname(p) or real_name(p), REASONS_DE.get(r, r))
+            self.urgent_seen[key] = urgent
+            self.status_cache[key] = res
             if p is self.current:
                 self.fill_overview(res)
                 self.apply_supported(res.get("supported", {}))
@@ -2763,6 +2825,11 @@ class MainWindow(QtWidgets.QMainWindow):
         reset.clicked.connect(self.load_scanner_options)
         rl.addWidget(reset)
         rl.addStretch(1)
+        self.adf_alert = QtWidgets.QLabel()
+        self.adf_alert.setWordWrap(True)
+        self.adf_alert.setStyleSheet(f"color: {STATE_COLORS['err']}; font-weight: 600;")
+        self.adf_alert.hide()
+        rl.addWidget(self.adf_alert)
         self.preview_btn = QtWidgets.QPushButton("Vorschau")
         self.preview_btn.setMinimumHeight(34)
         self.preview_btn.clicked.connect(self.do_preview)
@@ -2812,8 +2879,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.scan_area.setCurrentIndex(max(0, self.scan_area.findText(area)))
 
     def poll_adf(self):
-        """Papier im Einzug -> Vorlageneinzug waehlen, Einzug leer -> Scannerglas (nur bei Aenderung)."""
-        if self.stack.currentIndex() != self.SCAN or not self.scan_btn.isEnabled():
+        """Papier im Einzug -> Vorlageneinzug waehlen, Einzug leer -> Scannerglas (nur bei Aenderung).
+        Stau, offene Klappe usw. erscheinen rot ueber den Knoepfen – auch waehrend gescannt wird."""
+        if self.stack.currentIndex() != self.SCAN:
             return
         i = self.scanner_combo.currentIndex()
         dev = self.scanner_combo.currentData()
@@ -2822,8 +2890,20 @@ class MainWindow(QtWidgets.QMainWindow):
         if not dev or not ip:
             return
 
-        def done(ok, loaded):
-            if not ok or loaded is None or loaded == getattr(self, "adf_state", None):
+        def done(ok, st):
+            if not ok:
+                return
+            problem = ADF_PROBLEMS.get(st or "")
+            if problem != getattr(self, "adf_problem", None):
+                self.adf_problem = problem
+                self.adf_alert.setText("⚠  " + problem if problem else "")
+                self.adf_alert.setVisible(bool(problem))
+                if problem:
+                    notify("Vorlageneinzug", problem)
+            if problem or st is None or not self.scan_btn.isEnabled():
+                return
+            loaded = st == "ScannerAdfLoaded"
+            if loaded == getattr(self, "adf_state", None):
                 return
             self.adf_state = loaded
             want = next((self.scan_source.itemData(j) for j in range(self.scan_source.count())
@@ -2831,7 +2911,7 @@ class MainWindow(QtWidgets.QMainWindow):
             if want is not None:
                 self.scan_source.setCurrentIndex(self.scan_source.findData(want))
                 self.status.showMessage("Papier im Vorlageneinzug erkannt." if loaded else "Vorlageneinzug leer – Scannerglas.")
-        bg(lambda: adf_loaded(ip), done)
+        bg(lambda: adf_state(ip), done)
 
     def scan_args(self):
         src = self.scan_source.currentData()
@@ -3030,7 +3110,9 @@ class MainWindow(QtWidgets.QMainWindow):
             self.scan_btn.setEnabled(True)
             self.scan_btn.setText("Scannen")
             if not ok:
-                self.status.showMessage(f"Scan fehlgeschlagen: {files}")
+                problem = getattr(self, "adf_problem", None)
+                self.status.showMessage(f"Scan fehlgeschlagen: {problem or files}")
+                QtCore.QTimer.singleShot(0, self.poll_adf)   # Grund sofort nachsehen statt erst in 3 s
                 return
             self.scan_dpi = res or "300"
             if manual:
