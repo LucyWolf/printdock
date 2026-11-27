@@ -29,7 +29,7 @@ except ImportError:
     Image = None
 
 APP_NAME = "PrintDock"
-APP_VERSION = "1.0.51"
+APP_VERSION = "1.0.52"
 # Frueher „HP Druckzentrale“, dann „Druckzentrale“; migrate_old_install() zieht alte Installationen um.
 UPDATE_REPO = "LucyWolf/printdock"
 # Mit echten Geraeten ausprobiert (Modell, Verbindung, was geprueft wurde)
@@ -3092,7 +3092,7 @@ class MainWindow(QtWidgets.QMainWindow):
         p = self.current
         if not p or not p.queue:
             return
-        if QtWidgets.QMessageBox.question(self, APP_NAME, tr("Alle offenen Druckaufträge abbrechen?")) != QtWidgets.QMessageBox.Yes:
+        if QtWidgets.QMessageBox.question(self.top_parent(), APP_NAME, tr("Alle offenen Druckaufträge abbrechen?")) != QtWidgets.QMessageBox.Yes:
             return
         bg(lambda: powershell(f"Get-PrintJob -PrinterName {ps_quote(p.queue)} | Remove-PrintJob", 60) if WINDOWS
            else cups.Connection().cancelAllJobs(name=p.queue),
@@ -3537,9 +3537,16 @@ class MainWindow(QtWidgets.QMainWindow):
         self.settings.setValue("setup_done", True)
         self.search()
 
+    def top_parent(self):
+        """Elternfenster fuer Rueckfragen: der gerade offene Dialog, sonst das Hauptfenster."""
+        return QtWidgets.QApplication.activeModalWidget() or self
+
     def manual_update(self):
         if self.update_tag:
-            self.update_clicked()
+            info = QtWidgets.QApplication.activeModalWidget()
+            if info is not None and info is not self:
+                info.accept()
+            QtCore.QTimer.singleShot(0, self.update_clicked)
             return
         self.status.showMessage(tr("Suche nach Updates…"))
         self.check_update(manual=True)
@@ -3557,13 +3564,16 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.update_btn.show()
                 self.status.showMessage(tr("Update verfügbar: {0} (installiert: v{1})", tag, APP_VERSION))
                 if manual:
-                    self.update_clicked()
+                    info = QtWidgets.QApplication.activeModalWidget()
+                    if info is not None and info is not self:
+                        info.accept()   # Info-Fenster schliessen, damit die Frage nicht dahinter landet
+                    QtCore.QTimer.singleShot(0, self.update_clicked)
         bg(latest_release, done)
 
     def update_clicked(self):
         if not self.update_tag:
             return
-        if QtWidgets.QMessageBox.question(self, APP_NAME, tr("Auf {0} aktualisieren?\n\nDas Programm startet danach neu.", self.update_tag)) != QtWidgets.QMessageBox.Yes:
+        if QtWidgets.QMessageBox.question(self.top_parent(), APP_NAME, tr("Auf {0} aktualisieren?\n\nDas Programm startet danach neu.", self.update_tag)) != QtWidgets.QMessageBox.Yes:
             return
         self.update_btn.setEnabled(False)
         self.update_btn.setText(tr("Lade Update…"))
@@ -3572,7 +3582,7 @@ class MainWindow(QtWidgets.QMainWindow):
             if not ok:
                 self.update_btn.setEnabled(True)
                 self.update_btn.setText(tr("⬆ Update {0}", self.update_tag))
-                QtWidgets.QMessageBox.warning(self, APP_NAME, tr("Update fehlgeschlagen: {0}", res))
+                QtWidgets.QMessageBox.warning(self.top_parent(), APP_NAME, tr("Update fehlgeschlagen: {0}", res))
                 return
             if res == "setup":
                 QtWidgets.QApplication.quit()   # das Setup ersetzt die Programmdatei und startet sie neu
@@ -3618,10 +3628,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
         def done(ok, res):
             if ok:
-                QtWidgets.QMessageBox.information(self, APP_NAME, tr("Installiert. Bitte das Programm neu starten."))
+                QtWidgets.QMessageBox.information(self.top_parent(), APP_NAME, tr("Installiert. Bitte das Programm neu starten."))
                 bar.hide()
             else:
-                QtWidgets.QMessageBox.warning(self, APP_NAME, tr("Installation fehlgeschlagen: {0}", res))
+                QtWidgets.QMessageBox.warning(self.top_parent(), APP_NAME, tr("Installation fehlgeschlagen: {0}", res))
         bg(work, done)
 
     # ----- Drucken -----
@@ -3770,7 +3780,7 @@ class MainWindow(QtWidgets.QMainWindow):
         p = self.current
         if not p or not p.queue:
             return
-        if QtWidgets.QMessageBox.question(self, APP_NAME, tr("Warteschlange „{0}“ entfernen?\nDer Drucker selbst bleibt unverändert.", p.queue)) \
+        if QtWidgets.QMessageBox.question(self.top_parent(), APP_NAME, tr("Warteschlange „{0}“ entfernen?\nDer Drucker selbst bleibt unverändert.", p.queue)) \
                 != QtWidgets.QMessageBox.Yes:
             return
         bg(lambda: remove_queue(p.queue),
@@ -3841,7 +3851,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if not p or not number or not files:
             self.fax_state.setText(tr("Faxnummer und mindestens ein Dokument angeben."))
             return
-        if QtWidgets.QMessageBox.question(self, APP_NAME, tr("{0} Dokument(e) an {1} faxen?", len(files), number)) \
+        if QtWidgets.QMessageBox.question(self.top_parent(), APP_NAME, tr("{0} Dokument(e) an {1} faxen?", len(files), number)) \
                 != QtWidgets.QMessageBox.Yes:
             return
         self.fax_cancel.clear()
