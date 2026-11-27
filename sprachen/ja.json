@@ -478,5 +478,8 @@
  "IP-Adresse": "IP アドレス",
  "Bitte Modell und eine gültige IP-Adresse angeben.": "モデルと正しい IP アドレスを入力してください。",
  "Prüfe …": "確認中 …",
- "Unter {0} antwortet kein Drucker. Ist er eingeschaltet und die Adresse richtig?": "{0} で応答するプリンターがありません。電源は入っていて、アドレスは正しいですか？"
+ "Unter {0} antwortet kein Drucker. Ist er eingeschaltet und die Adresse richtig?": "{0} で応答するプリンターがありません。電源は入っていて、アドレスは正しいですか？",
+ "Treiber wählen": "ドライバーを選択",
+ "Der Drucker versteht kein IPP. Welcher Windows-Treiber soll ihn ansteuern?\n„Microsoft PCL6 Class Driver“ passt für die meisten Laserdrucker, „Microsoft PS Class Driver“ für PostScript-Geräte. Beim Einrichten fragt Windows nach Administratorrechten.": "このプリンターは IPP に対応していません。どの Windows ドライバーで制御しますか？\n「Microsoft PCL6 Class Driver」は多くのレーザープリンター、「Microsoft PS Class Driver」は PostScript 機器に適しています。設定時に Windows が管理者権限を求めます。",
+ "abgebrochen": "中止しました"
 }

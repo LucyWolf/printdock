@@ -478,5 +478,8 @@
  "IP-Adresse": "Endereço IP",
  "Bitte Modell und eine gültige IP-Adresse angeben.": "Indique o modelo e um endereço IP válido.",
  "Prüfe …": "A verificar …",
- "Unter {0} antwortet kein Drucker. Ist er eingeschaltet und die Adresse richtig?": "Nenhuma impressora responde em {0}. Está ligada e o endereço está correto?"
+ "Unter {0} antwortet kein Drucker. Ist er eingeschaltet und die Adresse richtig?": "Nenhuma impressora responde em {0}. Está ligada e o endereço está correto?",
+ "Treiber wählen": "Escolher controlador",
+ "Der Drucker versteht kein IPP. Welcher Windows-Treiber soll ihn ansteuern?\n„Microsoft PCL6 Class Driver“ passt für die meisten Laserdrucker, „Microsoft PS Class Driver“ für PostScript-Geräte. Beim Einrichten fragt Windows nach Administratorrechten.": "A impressora não entende IPP. Que controlador do Windows a deve controlar?\n“Microsoft PCL6 Class Driver” serve para a maioria das impressoras laser, “Microsoft PS Class Driver” para dispositivos PostScript. Ao configurar, o Windows pede direitos de administrador.",
+ "abgebrochen": "cancelado"
 }

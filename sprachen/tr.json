@@ -478,5 +478,8 @@
  "IP-Adresse": "IP adresi",
  "Bitte Modell und eine gültige IP-Adresse angeben.": "Lütfen modeli ve geçerli bir IP adresi girin.",
  "Prüfe …": "Denetleniyor …",
- "Unter {0} antwortet kein Drucker. Ist er eingeschaltet und die Adresse richtig?": "{0} adresinde yanıt veren yazıcı yok. Açık mı ve adres doğru mu?"
+ "Unter {0} antwortet kein Drucker. Ist er eingeschaltet und die Adresse richtig?": "{0} adresinde yanıt veren yazıcı yok. Açık mı ve adres doğru mu?",
+ "Treiber wählen": "Sürücü seç",
+ "Der Drucker versteht kein IPP. Welcher Windows-Treiber soll ihn ansteuern?\n„Microsoft PCL6 Class Driver“ passt für die meisten Laserdrucker, „Microsoft PS Class Driver“ für PostScript-Geräte. Beim Einrichten fragt Windows nach Administratorrechten.": "Yazıcı IPP anlamıyor. Hangi Windows sürücüsü onu yönetsin?\n“Microsoft PCL6 Class Driver” çoğu lazer yazıcıya, “Microsoft PS Class Driver” PostScript cihazlara uyar. Kurulum sırasında Windows yönetici izni ister.",
+ "abgebrochen": "iptal edildi"
 }

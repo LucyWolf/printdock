@@ -478,5 +478,8 @@
  "IP-Adresse": "Adres IP",
  "Bitte Modell und eine gültige IP-Adresse angeben.": "Podaj model i prawidłowy adres IP.",
  "Prüfe …": "Sprawdzanie …",
- "Unter {0} antwortet kein Drucker. Ist er eingeschaltet und die Adresse richtig?": "Pod adresem {0} nie odpowiada żadna drukarka. Czy jest włączona i adres jest poprawny?"
+ "Unter {0} antwortet kein Drucker. Ist er eingeschaltet und die Adresse richtig?": "Pod adresem {0} nie odpowiada żadna drukarka. Czy jest włączona i adres jest poprawny?",
+ "Treiber wählen": "Wybierz sterownik",
+ "Der Drucker versteht kein IPP. Welcher Windows-Treiber soll ihn ansteuern?\n„Microsoft PCL6 Class Driver“ passt für die meisten Laserdrucker, „Microsoft PS Class Driver“ für PostScript-Geräte. Beim Einrichten fragt Windows nach Administratorrechten.": "Drukarka nie obsługuje IPP. Który sterownik Windows ma nią sterować?\n„Microsoft PCL6 Class Driver” pasuje do większości drukarek laserowych, „Microsoft PS Class Driver” do urządzeń PostScript. Podczas konfiguracji Windows zapyta o uprawnienia administratora.",
+ "abgebrochen": "przerwano"
 }

@@ -29,7 +29,7 @@ except ImportError:
     Image = None
 
 APP_NAME = "PrintDock"
-APP_VERSION = "1.0.53"
+APP_VERSION = "1.0.54"
 # Frueher „HP Druckzentrale“, dann „Druckzentrale“; migrate_old_install() zieht alte Installationen um.
 UPDATE_REPO = "LucyWolf/printdock"
 # Mit echten Geraeten ausprobiert (Modell, Verbindung, was geprueft wurde)
@@ -436,6 +436,53 @@ def win_add_printer(name, uri):
     rc, out, err = powershell(f"Add-Printer -Name {ps_quote(name)} -IppURL {ps_quote(url)}", 180)
     if rc != 0:
         raise RuntimeError(tr("Windows konnte den Drucker nicht hinzufügen: {0}", (err or out).strip()[:200]))
+
+
+# Allgemeine Treiber, die Windows selbst mitbringt (fuer Drucker ohne IPP am klassischen Netzwerkanschluss)
+WIN_CLASS_DRIVERS = ["Microsoft PCL6 Class Driver", "Microsoft PS Class Driver"]
+
+
+def win_drivers(model=""):
+    """Installierte Windows-Treiber plus die allgemeinen; der zum Modell passende zuerst."""
+    try:
+        names = [d.get("Name") for d in ps_json("Get-PrinterDriver | Select-Object Name") if d.get("Name")]
+    except Exception:
+        names = []
+    names = [n for n in names if not WIN_VIRTUAL.search(n) and "IPP Class" not in n]
+    for c in WIN_CLASS_DRIVERS:
+        if c not in names:
+            names.append(c)
+    words = [w for w in re.findall(r"[a-z0-9]+", model.lower()) if len(w) > 2]
+    names.sort(key=lambda n: (-sum(w in n.lower() for w in words), n not in WIN_CLASS_DRIVERS[:1], n))
+    return names
+
+
+def win_add_raw_printer(name, host, driver):
+    """Drucker ohne IPP: Standard-TCP/IP-Anschluss (Port 9100) und Treiber anlegen. Das braucht unter Windows
+    Administratorrechte – Windows fragt einmal nach (wie pkexec unter Linux)."""
+    import base64
+    errfile = os.path.join(tempfile.mkdtemp(prefix="printdock-"), "fehler.txt")
+    script = (
+        "$ErrorActionPreference='Stop'; try { "
+        f"if (-not (Get-PrinterDriver -Name {ps_quote(driver)} -ErrorAction SilentlyContinue)) "
+        f"{{ Add-PrinterDriver -Name {ps_quote(driver)} }}; "
+        f"$port = {ps_quote('IP_' + host)}; "
+        "if (-not (Get-PrinterPort -Name $port -ErrorAction SilentlyContinue)) "
+        f"{{ Add-PrinterPort -Name $port -PrinterHostAddress {ps_quote(host)} }}; "
+        f"Add-Printer -Name {ps_quote(name)} -DriverName {ps_quote(driver)} -PortName $port "
+        f"}} catch {{ $_ | Out-File -Encoding utf8 {ps_quote(errfile)}; exit 1 }}")
+    enc = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
+    rc, out, err = powershell(
+        "$p = Start-Process powershell -Verb RunAs -Wait -PassThru -WindowStyle Hidden "
+        f"-ArgumentList '-NoProfile','-NonInteractive','-EncodedCommand','{enc}'; exit $p.ExitCode", 300)
+    if rc != 0:
+        detail = ""
+        try:
+            with open(errfile, encoding="utf-8-sig", errors="replace") as fh:
+                detail = fh.read().strip()
+        except OSError:
+            detail = (err or out).strip()
+        raise RuntimeError(tr("Windows konnte den Drucker nicht hinzufügen: {0}", detail[:300] or tr("abgebrochen")))
 
 
 def parse_page_ranges(text):
@@ -924,6 +971,7 @@ STANDARD_TEMPLATE = {
     "bild": None,            # Adresse eines Geraetebilds (https), wird nur geladen, nie mit der App verteilt
     "farbe": None,           # False = druckt nur schwarzweiss, None = beim Drucker nachsehen
     "scanner": None,         # "keiner", "glas", "einzug", "einzug-beidseitig"; None = beim Scanner nachsehen
+    "treiber_windows": None, # Windows-Treiber fuer Drucker ohne IPP, z. B. "Microsoft PS Class Driver"
 }
 
 
@@ -1248,7 +1296,11 @@ def setup_printer(p):
     if WINDOWS:
         if not p.host:
             raise RuntimeError(tr("USB-Drucker richtet Windows selbst ein – einfach anstecken."))
-        win_add_printer(name, f"ipp://{p.host}:631/ipp/print")
+        if any(u.startswith("socket://") for u in p.uris):   # ohne IPP: klassischer Anschluss mit Treiber
+            driver = getattr(p, "win_driver", None) or get_template(p).get("treiber_windows") or WIN_CLASS_DRIVERS[0]
+            win_add_raw_printer(name, p.host, driver)
+        else:
+            win_add_printer(name, f"ipp://{p.host}:631/ipp/print")
         return tr("Eingerichtet als „{0}“.", name)
     cmd = ["pkexec", "lpadmin", "-p", name, "-E", "-v", uri, "-m", "everywhere"]
     if not uri.startswith(("ipp://", "ipps://", "dnssd://")):
@@ -2726,6 +2778,18 @@ class MainWindow(QtWidgets.QMainWindow):
         p.model = p.info = model.text().strip()
         p.host = result["host"]
         p.uris = [f"ipp://{p.host}:631/ipp/print" if result["port"] == 631 else f"socket://{p.host}:9100"]
+        if WINDOWS and result["port"] != 631:
+            # Kein IPP: Windows braucht einen Treiber. Ein passender Herstellertreiber steht oben, sonst PCL6
+            drivers = win_drivers(p.model)
+            driver, chosen = QtWidgets.QInputDialog.getItem(
+                self.top_parent(), tr("Treiber wählen"),
+                tr("Der Drucker versteht kein IPP. Welcher Windows-Treiber soll ihn ansteuern?\n"
+                   "„Microsoft PCL6 Class Driver“ passt für die meisten Laserdrucker, „Microsoft PS Class Driver“ "
+                   "für PostScript-Geräte. Beim Einrichten fragt Windows nach Administratorrechten."),
+                drivers, 0, False)
+            if not chosen:
+                return
+            p.win_driver = driver
         if p not in self.printers:
             self.printers.append(p)
         self.current = p

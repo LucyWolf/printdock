@@ -478,5 +478,8 @@
  "IP-Adresse": "IP 地址",
  "Bitte Modell und eine gültige IP-Adresse angeben.": "请输入型号和有效的 IP 地址。",
  "Prüfe …": "正在检查 …",
- "Unter {0} antwortet kein Drucker. Ist er eingeschaltet und die Adresse richtig?": "{0} 没有打印机响应。打印机是否已开机，地址是否正确？"
+ "Unter {0} antwortet kein Drucker. Ist er eingeschaltet und die Adresse richtig?": "{0} 没有打印机响应。打印机是否已开机，地址是否正确？",
+ "Treiber wählen": "选择驱动程序",
+ "Der Drucker versteht kein IPP. Welcher Windows-Treiber soll ihn ansteuern?\n„Microsoft PCL6 Class Driver“ passt für die meisten Laserdrucker, „Microsoft PS Class Driver“ für PostScript-Geräte. Beim Einrichten fragt Windows nach Administratorrechten.": "此打印机不支持 IPP。应由哪个 Windows 驱动程序控制它？\n“Microsoft PCL6 Class Driver”适用于大多数激光打印机，“Microsoft PS Class Driver”适用于 PostScript 设备。设置时 Windows 会请求管理员权限。",
+ "abgebrochen": "已取消"
 }

@@ -16,6 +16,7 @@ z. B. „HP Officejet Pro 8620“ → `hp-officejet-pro-8620.json`.
 | `fax` | `true`/`false` legt fest, ob es Fax gibt | beim Drucker nachsehen |
 | `wartung` | erlaubte Wartungs- und Berichtsaufträge (Druckkopfreinigung immer) | alles, was der Drucker anbietet |
 | `hinweise` | kurze Hinweise, stehen in der Übersicht unter „Gerät“ | keine |
+| `treiber_windows` | Windows-Treiber für Drucker ohne IPP, z. B. `Microsoft PS Class Driver` | `Microsoft PCL6 Class Driver` |
 | `farbe` | `false` = druckt nur schwarzweiß | beim Drucker nachsehen |
 | `scanner` | `keiner`, `glas`, `einzug` oder `einzug-beidseitig` | beim Scanner nachsehen |
 | `hinweise_<sprache>` | dieselben Hinweise übersetzt, z. B. `hinweise_en`, `hinweise_fr` (Kürzel wie in `sprachen/`) | Englisch, sonst `hinweise` |

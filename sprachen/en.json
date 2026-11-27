@@ -478,5 +478,8 @@
  "IP-Adresse": "IP address",
  "Bitte Modell und eine gültige IP-Adresse angeben.": "Please enter the model and a valid IP address.",
  "Prüfe …": "Checking …",
- "Unter {0} antwortet kein Drucker. Ist er eingeschaltet und die Adresse richtig?": "No printer answers at {0}. Is it switched on and is the address right?"
+ "Unter {0} antwortet kein Drucker. Ist er eingeschaltet und die Adresse richtig?": "No printer answers at {0}. Is it switched on and is the address right?",
+ "Treiber wählen": "Choose driver",
+ "Der Drucker versteht kein IPP. Welcher Windows-Treiber soll ihn ansteuern?\n„Microsoft PCL6 Class Driver“ passt für die meisten Laserdrucker, „Microsoft PS Class Driver“ für PostScript-Geräte. Beim Einrichten fragt Windows nach Administratorrechten.": "The printer does not understand IPP. Which Windows driver should control it?\n“Microsoft PCL6 Class Driver” fits most laser printers, “Microsoft PS Class Driver” fits PostScript devices. During setup Windows asks for administrator rights.",
+ "abgebrochen": "cancelled"
 }

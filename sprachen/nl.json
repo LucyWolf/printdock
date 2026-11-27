@@ -478,5 +478,8 @@
  "IP-Adresse": "IP-adres",
  "Bitte Modell und eine gültige IP-Adresse angeben.": "Geef het model en een geldig IP-adres op.",
  "Prüfe …": "Controleren …",
- "Unter {0} antwortet kein Drucker. Ist er eingeschaltet und die Adresse richtig?": "Op {0} antwoordt geen printer. Staat hij aan en klopt het adres?"
+ "Unter {0} antwortet kein Drucker. Ist er eingeschaltet und die Adresse richtig?": "Op {0} antwoordt geen printer. Staat hij aan en klopt het adres?",
+ "Treiber wählen": "Stuurprogramma kiezen",
+ "Der Drucker versteht kein IPP. Welcher Windows-Treiber soll ihn ansteuern?\n„Microsoft PCL6 Class Driver“ passt für die meisten Laserdrucker, „Microsoft PS Class Driver“ für PostScript-Geräte. Beim Einrichten fragt Windows nach Administratorrechten.": "De printer begrijpt geen IPP. Welk Windows-stuurprogramma moet hem aansturen?\n„Microsoft PCL6 Class Driver” past bij de meeste laserprinters, „Microsoft PS Class Driver” bij PostScript-apparaten. Bij het instellen vraagt Windows om beheerdersrechten.",
+ "abgebrochen": "geannuleerd"
 }
