@@ -28,7 +28,7 @@ except ImportError:
     Image = None
 
 APP_NAME = "PrintDock"
-APP_VERSION = "1.0.42"
+APP_VERSION = "1.0.43"
 # Frueher „HP Druckzentrale“, dann „Druckzentrale“; migrate_old_install() zieht alte Installationen um.
 UPDATE_REPO = "LucyWolf/printdock"
 # Mit echten Geraeten ausprobiert (Modell, Verbindung, was geprueft wurde)
@@ -1242,6 +1242,31 @@ QScrollBar::add-line, QScrollBar::sub-line {{ height: 0; }}
 QMenu {{ background: {t['card']}; border: 1px solid {t['line']}; }}
 QMenu::item:selected {{ background: {ACCENT}; color: #FFFFFF; }}
 """
+
+
+class ScaledImage(QtWidgets.QLabel):
+    """Bild, das immer so gross wie moeglich in den Platz passt (wachst und schrumpft mit dem Fenster)."""
+    def __init__(self):
+        super().__init__()
+        self.setAlignment(QtCore.Qt.AlignCenter)
+        self.setMinimumSize(200, 200)
+        self.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Ignored)
+        self._pix = QtGui.QPixmap()
+
+    def set_image(self, path_or_pix):
+        self._pix = path_or_pix if isinstance(path_or_pix, QtGui.QPixmap) else QtGui.QPixmap(path_or_pix or "")
+        self._rescale()
+
+    def _rescale(self):
+        if self._pix.isNull():
+            self.clear()
+        else:
+            self.setPixmap(self._pix.scaled(self.size() * 0.97, QtCore.Qt.KeepAspectRatio,
+                                            QtCore.Qt.SmoothTransformation))
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        self._rescale()
 
 
 class Clickable(QtWidgets.QFrame):
@@ -2610,20 +2635,34 @@ class MainWindow(QtWidgets.QMainWindow):
         hl.addWidget(hint)
         hl.addStretch(1)
         self.scan_area_stack.addWidget(hint_box)
-        self.preview_label = QtWidgets.QLabel()
-        self.preview_label.setAlignment(QtCore.Qt.AlignCenter)
+        self.preview_label = ScaledImage()
         self.scan_area_stack.addWidget(self.preview_label)
         pages_box = QtWidgets.QWidget()
         pl = QtWidgets.QVBoxLayout(pages_box)
         pl.setContentsMargins(0, 0, 0, 0)
+        # Seiten untereinander in einer schmalen Spalte (mit gedrueckter linker Maustaste verschieben),
+        # daneben gross die gewaehlte Seite bzw. die Vorschau – wie bei der Scan-Software unter Windows
+        split = QtWidgets.QHBoxLayout()
+        split.setSpacing(12)
         self.page_view = QtWidgets.QListWidget()
-        self.page_view.setViewMode(QtWidgets.QListView.IconMode)
-        self.page_view.setIconSize(QtCore.QSize(220, 300))
-        self.page_view.setResizeMode(QtWidgets.QListView.Adjust)
-        self.page_view.setMovement(QtWidgets.QListView.Snap)
+        self.page_view.setViewMode(QtWidgets.QListView.ListMode)
+        self.page_view.setFlow(QtWidgets.QListView.TopToBottom)
+        self.page_view.setIconSize(QtCore.QSize(120, 165))
+        self.page_view.setSpacing(4)
+        self.page_view.setFixedWidth(250)
+        self.page_view.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        self.page_view.setTextElideMode(QtCore.Qt.ElideNone)
         self.page_view.setDragDropMode(QtWidgets.QAbstractItemView.InternalMove)
+        self.page_view.setDefaultDropAction(QtCore.Qt.MoveAction)
+        self.page_view.setDragEnabled(True)
         self.page_view.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)
-        pl.addWidget(self.page_view, 1)
+        self.page_view.model().rowsMoved.connect(lambda *a: self.renumber_pages())
+        self.page_view.currentItemChanged.connect(self.show_page)
+        split.addWidget(self.page_view)
+        self.page_big = ScaledImage()
+        self.page_big.setObjectName("group")
+        split.addWidget(self.page_big, 1)
+        pl.addLayout(split, 1)
         row = QtWidgets.QHBoxLayout()
         more = QtWidgets.QPushButton("+ Seite importieren")
         more.clicked.connect(self.import_pages)
@@ -2781,10 +2820,13 @@ class MainWindow(QtWidgets.QMainWindow):
             if not ok:
                 self.status.showMessage(f"Vorschau fehlgeschlagen: {files}")
                 return
-            pix = QtGui.QPixmap(files[0])
-            self.preview_label.setPixmap(pix.scaled(self.preview_label.size() * 0.95, QtCore.Qt.KeepAspectRatio,
-                                                    QtCore.Qt.SmoothTransformation))
-            self.scan_area_stack.setCurrentIndex(1)
+            # gibt es schon Seiten, erscheint die Vorschau gross neben ihnen; sonst allein
+            if self.page_view.count():
+                self.page_view.setCurrentItem(None)
+                self.page_big.set_image(files[0])
+            else:
+                self.preview_label.set_image(files[0])
+                self.scan_area_stack.setCurrentIndex(1)
         # Vorschau immer von der Glasscheibe, niedrige Aufloesung, nicht in die Seiten
         flat = src if not (src and re.search(r"adf|feeder|duplex", src, re.I)) else None
         bg(lambda: scan(dev, mode, "75" if "75" in [self.scan_res.itemData(i) for i in range(self.scan_res.count())]
@@ -2793,15 +2835,24 @@ class MainWindow(QtWidgets.QMainWindow):
     def add_page_files(self, files):
         for f in files:
             self.pages.append(f)
-            item = QtWidgets.QListWidgetItem(QtGui.QIcon(QtGui.QPixmap(f).scaled(440, 600, QtCore.Qt.KeepAspectRatio,
+            item = QtWidgets.QListWidgetItem(QtGui.QIcon(QtGui.QPixmap(f).scaled(260, 360, QtCore.Qt.KeepAspectRatio,
                                                                                   QtCore.Qt.SmoothTransformation)),
                                              f"Seite {self.page_view.count() + 1}")
             item.setData(QtCore.Qt.UserRole, f)
             self.page_view.addItem(item)
         if files:
             self.scan_saved = False
+            self.page_view.setCurrentRow(self.page_view.count() - 1)   # neueste Seite gross zeigen
+            self.page_view.scrollToBottom()
         if self.page_view.count():
             self.scan_area_stack.setCurrentIndex(2)
+
+    def show_page(self, item, _prev=None):
+        self.page_big.set_image(item.data(QtCore.Qt.UserRole) if item else None)
+
+    def renumber_pages(self):
+        for i in range(self.page_view.count()):
+            self.page_view.item(i).setText(f"Seite {i + 1}")
 
     def import_pages(self):
         files, _ = QtWidgets.QFileDialog.getOpenFileNames(self, "Bilder importieren", os.path.expanduser("~"),
@@ -2814,6 +2865,7 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         self.scan_saved = True
         self.page_view.clear()
+        self.page_big.set_image(None)
         self.pages.clear()
         self.scan_area_stack.setCurrentIndex(0)
 
@@ -2951,6 +3003,8 @@ class MainWindow(QtWidgets.QMainWindow):
     def delete_pages(self):
         for item in self.page_view.selectedItems():
             self.page_view.takeItem(self.page_view.row(item))
+        self.renumber_pages()
+        self.show_page(self.page_view.currentItem())
         if not self.page_view.count():
             self.scan_area_stack.setCurrentIndex(0)
 
