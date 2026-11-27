@@ -5,6 +5,7 @@
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -28,7 +29,7 @@ except ImportError:
     Image = None
 
 APP_NAME = "PrintDock"
-APP_VERSION = "1.0.48"
+APP_VERSION = "1.0.49"
 # Frueher „HP Druckzentrale“, dann „Druckzentrale“; migrate_old_install() zieht alte Installationen um.
 UPDATE_REPO = "LucyWolf/printdock"
 # Mit echten Geraeten ausprobiert (Modell, Verbindung, was geprueft wurde)
@@ -173,7 +174,7 @@ def bg(fn, done=None):
 
 # ---------- Drucker ----------
 class Printer:
-    FIELDS = ("queue", "uris", "model", "info", "serial", "host", "fax")
+    FIELDS = ("queue", "uris", "model", "info", "serial", "host", "fax", "server_id", "location")
 
     def to_dict(self):
         return {k: getattr(self, k) for k in self.FIELDS}
@@ -195,6 +196,8 @@ class Printer:
         self.host = ""          # IP-Adresse im Netz (fuer Weboberflaeche und direkte IPP-Abfrage)
         self.fax = None         # kann PC-Fax (None = noch nicht geprueft)
         self.template = None    # Druckervorlage (nicht gespeichert, liegt als Datei vor)
+        self.server_id = None   # vom PrintDock-Server zugewiesen (dessen Kennung), sonst None
+        self.location = ""      # Standort laut Server, z. B. „Büro 2.14“
 
     @property
     def uri(self):
@@ -203,6 +206,8 @@ class Printer:
     @property
     def connection(self):
         u = " ".join(self.uris)
+        if self.server_id:
+            return tr("Server")
         if "usb" in u or re.search(r"://(localhost|127\.0\.0\.1)", u):
             return "USB"
         return tr("Netzwerk (LAN/WLAN)")
@@ -574,6 +579,141 @@ def ensure_packages(by_distro):
 
 
 # ---------- Einrichten ----------
+# ---------- PrintDock-Server ----------
+# Firmen und Aemter verwalten ihre Drucker zentral (github.com/LucyWolf/printdock-server). Die App meldet sich dort
+# an und bekommt die zugewiesenen Drucker; gedruckt wird direkt zum Geraet. Schnittstelle: docs/api.md im Server-Projekt.
+# Gemerkt werden nur Adresse, Benutzername und das Anmelde-Token – nie das Passwort.
+SERVER_FILE = os.path.join(INSTALL_DIR, "server")   # Adresse, vom Installer geschrieben
+
+
+class ServerAuthError(RuntimeError):
+    """Anmeldung abgelaufen oder ungueltig."""
+
+
+def server_settings():
+    return QtCore.QSettings("printdock", "printdock")
+
+
+def server_url():
+    url = (server_settings().value("server/url", "") or "").strip()
+    if not url:
+        try:
+            with open(SERVER_FILE, encoding="utf-8") as f:
+                url = f.read().strip()
+        except OSError:
+            url = ""
+    return url.rstrip("/")
+
+
+def server_insecure(url):
+    """http:// ausserhalb des eigenen Rechners: Passwort und Token gingen unverschluesselt durchs Netz."""
+    return url.startswith("http://") and not re.match(r"http://(localhost|127\.0\.0\.1)(:|/|$)", url)
+
+
+def server_request(method, path, data=None, token=None, url=None):
+    url = (url or server_url()).rstrip("/")
+    if not url:
+        raise RuntimeError(tr("Kein Server eingetragen."))
+    if not url.startswith(("https://", "http://")):
+        url = "https://" + url
+    req = urllib.request.Request(url + path, method=method,
+                                 data=json.dumps(data).encode("utf-8") if data is not None else None,
+                                 headers={"Content-Type": "application/json", "Accept": "application/json",
+                                          "User-Agent": f"PrintDock/{APP_VERSION}"})
+    token = token if token is not None else server_settings().value("server/token", "")
+    if token:
+        req.add_header("Authorization", "Bearer " + token)
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            body = r.read(2 * 1024 * 1024)
+    except urllib.error.HTTPError as e:
+        if e.code == 401:
+            raise ServerAuthError(tr("Anmeldung abgelaufen oder falsch – bitte neu anmelden."))
+        if e.code == 403:
+            raise RuntimeError(tr("Keine Berechtigung."))
+        raise RuntimeError(tr("Server meldet einen Fehler (HTTP {0}).", e.code))
+    except (urllib.error.URLError, OSError) as e:
+        raise RuntimeError(tr("Server nicht erreichbar: {0}", getattr(e, "reason", e)))
+    try:
+        return json.loads(body.decode("utf-8")) if body else {}
+    except ValueError:
+        raise RuntimeError(tr("Unerwartete Antwort vom Server."))
+
+
+def server_login(url, user, password):
+    """Anmelden; gibt (token, name, rolle) zurueck. Das Passwort wird nirgends gespeichert."""
+    url = url.strip().rstrip("/")
+    if url and not url.startswith(("https://", "http://")):
+        url = "https://" + url
+    res = server_request("POST", "/api/v1/login", {"username": user, "password": password}, token="", url=url)
+    token = res.get("token") if isinstance(res, dict) else None
+    if not token:
+        raise RuntimeError(tr("Unerwartete Antwort vom Server."))
+    u = res.get("user") or {}
+    return url, token, u.get("name") or user, u.get("role") or "user"
+
+
+def server_printers():
+    """Zugewiesene Drucker vom Server als Printer-Objekte (noch ohne lokale Warteschlange)."""
+    res = server_request("GET", "/api/v1/printers")
+    out = []
+    for d in res if isinstance(res, list) else []:
+        if not isinstance(d, dict) or not d.get("id") or not (d.get("uri") or d.get("host")):
+            continue
+        p = Printer()
+        p.server_id = str(d["id"])
+        p.model = str(d.get("model") or "")
+        p.info = str(d.get("name") or "")
+        p.location = str(d.get("location") or "")
+        p.host = str(d.get("host") or "")
+        uri = str(d.get("uri") or "")
+        if not uri.startswith(("ipp://", "ipps://")):
+            uri = f"ipp://{p.host}:631/ipp/print"   # nur treiberlose Netzwerkdrucker kommen vom Server
+        p.uris = [uri]
+        out.append(p)
+    return out
+
+
+def merge_server_printers(found, assigned):
+    """Server-Drucker in die Suchergebnisse einordnen: schon bekannte (gleiche Adresse) markieren, fehlende anhaengen."""
+    def hosts(p):
+        hs = {p.host} if p.host else set()
+        for u in p.uris:
+            m = re.match(r"\w+://([^/:]+)", u)
+            if m:
+                hs.add(m.group(1))
+        return hs
+    for sp in assigned:
+        match = next((p for p in found if hosts(p) & hosts(sp)), None)
+        if match:
+            match.server_id, match.location = sp.server_id, sp.location
+            match.info = match.info or sp.info
+            match.model = match.model or sp.model
+        else:
+            found.append(sp)
+    return found
+
+
+def setup_printers_batch(printers):
+    """Mehrere Netzwerkdrucker mit einer einzigen Passwortabfrage einrichten (treiberlos)."""
+    cmds, names = [], []
+    for p in printers:
+        uri = p.best_setup_uri()
+        if not uri or not uri.startswith(("ipp://", "ipps://")):
+            continue
+        name = re.sub(r"[^A-Za-z0-9_-]+", "_", p.info or p.model or "Drucker").strip("_")[:60] or "Drucker"
+        while name in names:
+            name += "_2"
+        names.append(name)
+        cmds.append("lpadmin -p " + shlex.quote(name) + " -E -v " + shlex.quote(uri) + " -m everywhere")
+    if not cmds:
+        return 0
+    rc, out, err = run(["pkexec", "/bin/sh", "-c", " && ".join(cmds)], 300)
+    if rc != 0:
+        raise RuntimeError((err or out or "lpadmin").strip())
+    return len(cmds)
+
+
 def setup_printer(p):
     uri = p.best_setup_uri()
     name = re.sub(r"[^A-Za-z0-9_-]+", "_", p.model or p.info or "Drucker").strip("_")[:60] or tr("Drucker")
@@ -1161,7 +1301,13 @@ class InkBar(QtWidgets.QWidget):
 
 
 class SetupWizard(QtWidgets.QDialog):
-    """Erster Start: Drucker einschalten -> suchen (USB und Netz) -> auswaehlen -> einrichten -> Testseite."""
+    """Erster Start: Drucker einschalten -> suchen (USB und Netz) -> auswaehlen -> einrichten -> Testseite.
+    Oder: beim PrintDock-Server anmelden, der die freigegebenen Drucker liefert."""
+
+    def use_server(self):
+        QtCore.QSettings("printdock", "printdock").setValue("setup_done", True)
+        self.accept()
+        QtCore.QTimer.singleShot(0, self.parent().server_login_dialog)
 
     def __init__(self, parent):
         super().__init__(parent)
@@ -1200,6 +1346,13 @@ class SetupWizard(QtWidgets.QDialog):
         txt.setWordWrap(True)
         l1.addWidget(txt)
         l1.addStretch(1)
+        # Dritter Weg neben USB und Netzwerk: Drucker, die eine Firma oder ein Amt zentral verwaltet
+        srv = QtWidgets.QHBoxLayout()
+        srv.addWidget(QtWidgets.QLabel(tr("Drucker in einer Firma oder einem Amt?")), 1)
+        srv_btn = QtWidgets.QPushButton(tr("Mit PrintDock-Server verbinden…"))
+        srv_btn.clicked.connect(self.use_server)
+        srv.addWidget(srv_btn)
+        l1.addLayout(srv)
         self.stack.addWidget(p1)
 
         # 2: Suche und Auswahl
@@ -1607,7 +1760,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.load_cached_printers()
         QtCore.QTimer.singleShot(200, self.search)
         QtCore.QTimer.singleShot(1500, self.check_update)
-        if not self.settings.value("setup_done", False, type=bool) and not os.environ.get("DZ_SELFTEST"):
+        if server_url() and not self.settings.value("server/token", "") and not os.environ.get("DZ_SELFTEST") \
+                and not self.settings.value("server/asked", False, type=bool):
+            # Der Installer hat eine Server-Adresse eingetragen: einmal von selbst nach der Anmeldung fragen
+            self.settings.setValue("server/asked", True)
+            QtCore.QTimer.singleShot(400, self.server_login_dialog)
+        elif not self.settings.value("setup_done", False, type=bool) and not os.environ.get("DZ_SELFTEST"):
             QtCore.QTimer.singleShot(300, self.run_wizard)
         self.timer = QtCore.QTimer(self)
         self.timer.timeout.connect(self.refresh_status)
@@ -1709,6 +1867,22 @@ class MainWindow(QtWidgets.QMainWindow):
         lang_row.addWidget(lang)
         lang_row.addStretch(1)
         lay.addLayout(lang_row)
+        sg, sl = group(tr("PrintDock-Server"))
+        srow = QtWidgets.QHBoxLayout()
+        if self.settings.value("server/token", ""):
+            who = QtWidgets.QLabel(tr("Angemeldet als {0} bei {1}", self.settings.value("server/name", ""), server_url()))
+            who.setWordWrap(True)
+            srow.addWidget(who, 1)
+            out = QtWidgets.QPushButton(tr("Abmelden"))
+            out.clicked.connect(lambda: (self.server_logout(), d.accept()))
+            srow.addWidget(out)
+        else:
+            srow.addWidget(QtWidgets.QLabel(tr("Nicht verbunden – für Drucker, die eine Firma oder ein Amt zentral verwaltet.")), 1)
+            con = QtWidgets.QPushButton(tr("Verbinden…"))
+            con.clicked.connect(lambda: (d.accept(), self.server_login_dialog()))
+            srow.addWidget(con)
+        sl.addLayout(srow)
+        lay.addWidget(sg)
         g, gl = group(tr("Getestete Drucker"))
         for model in TESTED_PRINTERS:
             gl.addWidget(QtWidgets.QLabel(model))
@@ -1867,6 +2041,8 @@ class MainWindow(QtWidgets.QMainWindow):
         form = QtWidgets.QFormLayout()
         form.addRow(tr("Modell"), QtWidgets.QLabel(re.sub(r"\s+-\s+.*$", "", p.model or "–")))
         form.addRow(tr("Verbindung"), QtWidgets.QLabel(p.connection))
+        if p.location:
+            form.addRow(tr("Standort"), QtWidgets.QLabel(p.location))
         if p.host:
             form.addRow(tr("Adresse"), QtWidgets.QLabel(p.host))
         form.addRow(tr("Warteschlange"), QtWidgets.QLabel(p.queue or tr("noch nicht eingerichtet")))
@@ -2207,7 +2383,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 color = STATE_COLORS["warn"]
             else:
                 color = STATE_COLORS["ok"]
-            sub = tr("nicht eingerichtet") if not p.queue else p.connection.split(" ")[0]
+            sub = tr("nicht eingerichtet") if not p.queue else (p.location or p.connection.split(" ")[0])
             self.printer_list.addItem(QtWidgets.QListWidgetItem(dot_icon(color), f"{self.nickname(p)}\n{sub}"))
         if self.current in self.printers:
             self.printer_list.setCurrentRow(self.printers.index(self.current))
@@ -2277,7 +2453,142 @@ class MainWindow(QtWidgets.QMainWindow):
             for p in res:
                 if p is not self.current:
                     self.refresh_status(p)
-        bg(discover, done)
+        bg(self.discover_with_server, lambda ok, res: (done(ok, res), self.after_server_sync()))
+
+    def discover_with_server(self):
+        """Suche wie bisher; ist die App bei einem PrintDock-Server angemeldet, kommen dessen Drucker dazu.
+        Laeuft im Hintergrund – Fehler des Servers werden gemerkt und danach im Fenster gemeldet."""
+        self.server_problem = None
+        found = discover()
+        if server_url() and server_settings().value("server/token", ""):
+            try:
+                merge_server_printers(found, server_printers())
+            except ServerAuthError as e:
+                self.server_problem = ("auth", str(e))
+            except Exception as e:
+                self.server_problem = ("other", str(e))
+        return found
+
+    def after_server_sync(self):
+        problem = getattr(self, "server_problem", None)
+        if problem and problem[0] == "auth":
+            self.settings.remove("server/token")
+            self.status.showMessage(problem[1])
+            QtCore.QTimer.singleShot(200, self.server_login_dialog)
+        elif problem:
+            self.status.showMessage(tr("PrintDock-Server: {0}", problem[1]))
+        else:
+            todo = [p for p in self.printers if p.server_id and not p.queue]
+            if todo:
+                self.status.showMessage(tr("{0} zugewiesene(r) Drucker noch nicht eingerichtet.", len(todo)))
+
+    # ----- PrintDock-Server: Anmeldung -----
+    def server_login_dialog(self, parent=None):
+        d = QtWidgets.QDialog(parent or self)
+        d.setWindowTitle(tr("Mit PrintDock-Server verbinden"))
+        d.setStyleSheet(make_qss())
+        lay = QtWidgets.QVBoxLayout(d)
+        lay.setContentsMargins(22, 20, 22, 18)
+        intro = QtWidgets.QLabel(tr("Firmen und Ämter verwalten ihre Drucker zentral. Nach der Anmeldung "
+                                    "richtet PrintDock die Drucker ein, die dir zugewiesen sind."))
+        intro.setWordWrap(True)
+        lay.addWidget(intro)
+        form = QtWidgets.QFormLayout()
+        url = QtWidgets.QLineEdit(server_url())
+        url.setPlaceholderText("https://drucker.example.org")
+        user = QtWidgets.QLineEdit(self.settings.value("server/user", "") or "")
+        pw = QtWidgets.QLineEdit()
+        pw.setEchoMode(QtWidgets.QLineEdit.Password)
+        form.addRow(tr("Server-Adresse"), url)
+        form.addRow(tr("Benutzername"), user)
+        form.addRow(tr("Passwort"), pw)
+        lay.addLayout(form)
+        warn = QtWidgets.QLabel()
+        warn.setWordWrap(True)
+        warn.setStyleSheet(f"color: {STATE_COLORS['err']};")
+        warn.hide()
+        lay.addWidget(warn)
+
+        def check_url():
+            insecure = server_insecure(url.text().strip())
+            warn.setText(tr("Achtung: ohne https gehen Passwort und Anmeldung unverschlüsselt durchs Netz."))
+            warn.setVisible(insecure)
+        url.textChanged.connect(check_url)
+        check_url()
+        row = QtWidgets.QHBoxLayout()
+        later = QtWidgets.QPushButton(tr("Später"))
+        later.clicked.connect(d.reject)
+        go = QtWidgets.QPushButton(tr("Anmelden"))
+        go.setObjectName("primary")
+        go.setDefault(True)
+        row.addStretch(1)
+        row.addWidget(later)
+        row.addWidget(go)
+        lay.addLayout(row)
+        (pw if user.text() else user).setFocus()
+
+        def submit():
+            if not url.text().strip() or not user.text().strip() or not pw.text():
+                warn.setText(tr("Bitte Adresse, Benutzername und Passwort angeben."))
+                warn.show()
+                return
+            go.setEnabled(False)
+            go.setText(tr("Melde an…"))
+
+            def done(ok, res):
+                go.setEnabled(True)
+                go.setText(tr("Anmelden"))
+                if not ok:
+                    warn.setText(str(res))
+                    warn.show()
+                    return
+                u, token, name, role = res
+                self.settings.setValue("server/url", u)
+                self.settings.setValue("server/user", user.text().strip())
+                self.settings.setValue("server/token", token)
+                self.settings.setValue("server/name", name)
+                self.settings.setValue("server/role", role)
+                d.accept()
+                self.status.showMessage(tr("Angemeldet als {0}.", name))
+                self.server_sync_and_setup()
+            bg(lambda: server_login(url.text(), user.text().strip(), pw.text()), done)
+        go.clicked.connect(submit)
+        pw.returnPressed.connect(submit)
+        d.resize(460, 0)
+        d.exec()
+
+    def server_logout(self):
+        token = self.settings.value("server/token", "")
+        if token:
+            bg(lambda: server_request("POST", "/api/v1/logout", {}, token=token))   # Fehler egal: lokal ist es weg
+        self.settings.remove("server/token")
+        for p in self.printers:
+            p.server_id, p.location = None, ""
+        self.fill_printer_list()
+        self.status.showMessage(tr("Abgemeldet. Eingerichtete Drucker bleiben erhalten."))
+
+    def server_sync_and_setup(self):
+        """Nach der Anmeldung: Drucker holen und alle noch fehlenden mit einer Passwortabfrage einrichten."""
+        def got(ok, res):
+            if not ok:
+                self.status.showMessage(tr("PrintDock-Server: {0}", res))
+                return
+            todo = [p for p in res if p.server_id and not p.queue]
+            if not todo:
+                self.search()
+                return
+            names = "\n".join("•  " + (p.info or p.model) + (f" ({p.location})" if p.location else "") for p in todo)
+            if QtWidgets.QMessageBox.question(
+                    self, APP_NAME, tr("Dir sind {0} Drucker zugewiesen:\n\n{1}\n\nJetzt einrichten? Ein Fenster fragt "
+                                       "einmal nach deinem Passwort.", len(todo), names)) != QtWidgets.QMessageBox.Yes:
+                self.search()
+                return
+            self.status.showMessage(tr("Richte Drucker ein…"))
+            bg(lambda: setup_printers_batch(todo),
+               lambda ok2, n: (self.status.showMessage(tr("{0} Drucker eingerichtet.", n) if ok2
+                                                       else tr("Einrichten fehlgeschlagen: {0}", n)),
+                               QtCore.QTimer.singleShot(1500, self.search)))
+        bg(self.discover_with_server, got)
 
     def select(self, row):
         self.current = self.printers[row] if row is not None and 0 <= row < len(self.printers) else None

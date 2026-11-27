@@ -177,6 +177,7 @@ done
 if [ "$IL" != "de" ]; then LANGJSON="$INSTALL_DIR/sprachen/$IL.json"; fi
 
 # Schon installiert? Dann aktualisieren oder deinstallieren
+FRESH=1
 if [ -f "$INSTALL_DIR/printdock.py" ] || [ -f "$HOME/.local/share/druckzentrale/druckzentrale.py" ] \
    || [ -f "$HOME/.local/share/hp-druckzentrale/hp_druckzentrale.py" ]; then
     Q="$(T "PrintDock ist schon installiert.")"
@@ -190,11 +191,47 @@ if [ -f "$INSTALL_DIR/printdock.py" ] || [ -f "$HOME/.local/share/druckzentrale/
         *) read -rp "$Q  [1] $L_UPD  [2] $L_DEL  [x] $L_CANCEL: " A || A=""
            case "$A" in 1|a|A) CHOICE=0 ;; 2|d|D) CHOICE=1 ;; *) CHOICE=2 ;; esac ;;
     esac
+    FRESH=0
     case "$CHOICE" in
         0) ;;
         1) uninstall ;;
         *) info "$(T "Abgebrochen – es wurde nichts verändert.")"; pause_in_terminal; exit 0 ;;
     esac
+fi
+
+# Neu installiert: Wie ist der Drucker angeschlossen? USB und LAN/WLAN findet die App selbst; bei „Server“ (Firma,
+# Amt) wird die Adresse gemerkt, und die App fragt beim ersten Start nach Benutzername und Passwort – das Passwort
+# kommt nie in dieses Skript.
+SERVER_URL=""
+if [ "$FRESH" = 1 ]; then
+    Q="$(T "Wie ist dein Drucker angeschlossen?")"
+    L_LAN="$(T "LAN / WLAN")"; L_SRV="$(T "Server (Firma / Amt)")"
+    KIND=""
+    case "$GUI" in
+        1) KIND="$(kdialog --title "$TITLE" --radiolist "$Q" usb USB on lan "$L_LAN" off server "$L_SRV" off 2>/dev/null)" || KIND="" ;;
+        2) KIND="$(zenity --list --radiolist --title="$TITLE" --text="$Q" --height=260 --column="" --column="k" \
+               --column="$Q" --hide-column=2 --print-column=2 TRUE usb USB FALSE lan "$L_LAN" FALSE server "$L_SRV" \
+               2>/dev/null)" || KIND="" ;;
+        *) if [ -t 0 ]; then
+               printf '%s\n  1) USB\n  2) %s\n  3) %s\n' "$Q" "$L_LAN" "$L_SRV"
+               read -rp "[1] " N || N=""
+               case "$N" in 3) KIND=server ;; 2) KIND=lan ;; *) KIND=usb ;; esac
+           fi ;;
+    esac
+    if [ "$KIND" = "server" ]; then
+        QS="$(T "Adresse des PrintDock-Servers (z. B. https://drucker.example.org):")"
+        case "$GUI" in
+            1) SERVER_URL="$(kdialog --title "$TITLE" --inputbox "$QS" "https://" 2>/dev/null)" || SERVER_URL="" ;;
+            2) SERVER_URL="$(zenity --entry --title="$TITLE" --text="$QS" --entry-text="https://" 2>/dev/null)" || SERVER_URL="" ;;
+            *) if [ -t 0 ]; then read -rp "$QS " SERVER_URL || SERVER_URL=""; fi ;;
+        esac
+        SERVER_URL="$(printf '%s' "$SERVER_URL" | tr -d '[:space:]')"
+        [ "$SERVER_URL" = "https://" ] && SERVER_URL=""
+        if [ -n "$SERVER_URL" ]; then
+            case "$SERVER_URL" in http://*|https://*) ;; *) SERVER_URL="https://$SERVER_URL" ;; esac
+            printf '%s\n' "$SERVER_URL" > "$INSTALL_DIR/server"
+        fi
+    fi
 fi
 
 # 1) Programmdatei: neben dem Installer, sonst die neueste aus dem Release
@@ -328,5 +365,7 @@ if [ "$NEED_REBOOT" = 1 ]; then
     pause_in_terminal
     exit 0
 fi
-info "$(T "Installation abgeschlossen!\n\nStart über das Anwendungsmenü: PrintDock\n\nUSB-Drucker, die schon stecken: einmal ab- und wieder anstecken.")"
+DONE_MSG="$(T "Installation abgeschlossen!\n\nStart über das Anwendungsmenü: PrintDock\n\nUSB-Drucker, die schon stecken: einmal ab- und wieder anstecken.")"
+[ -n "$SERVER_URL" ] && DONE_MSG="$DONE_MSG\n\n$(T "Beim ersten Start fragt PrintDock nach Benutzername und Passwort für den Server.")"
+info "$DONE_MSG"
 pause_in_terminal
