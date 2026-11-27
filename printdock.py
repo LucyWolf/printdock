@@ -28,7 +28,7 @@ except ImportError:
     Image = None
 
 APP_NAME = "PrintDock"
-APP_VERSION = "1.0.44"
+APP_VERSION = "1.0.45"
 # Frueher „HP Druckzentrale“, dann „Druckzentrale“; migrate_old_install() zieht alte Installationen um.
 UPDATE_REPO = "LucyWolf/printdock"
 # Mit echten Geraeten ausprobiert (Modell, Verbindung, was geprueft wurde)
@@ -2646,6 +2646,19 @@ class MainWindow(QtWidgets.QMainWindow):
         pl.setContentsMargins(0, 0, 0, 0)
         # Seiten untereinander in einer schmalen Spalte (mit gedrueckter linker Maustaste verschieben),
         # daneben gross die gewaehlte Seite bzw. die Vorschau – wie bei der Scan-Software unter Windows
+        self.md_bar = QtWidgets.QFrame()
+        self.md_bar.setObjectName("group")
+        mb = QtWidgets.QHBoxLayout(self.md_bar)
+        mb.setContentsMargins(12, 6, 12, 6)
+        mb.addWidget(QtWidgets.QLabel("Rückseiten falsch einsortiert?"), 1)
+        b = QtWidgets.QPushButton("Reihenfolge umkehren")
+        b.clicked.connect(lambda: self.manual_toggle("reverse"))
+        mb.addWidget(b)
+        b = QtWidgets.QPushButton("Um 180° drehen")
+        b.clicked.connect(lambda: self.manual_toggle("rotate"))
+        mb.addWidget(b)
+        self.md_bar.hide()
+        pl.addWidget(self.md_bar)
         split = QtWidgets.QHBoxLayout()
         split.setSpacing(12)
         self.page_view = QtWidgets.QListWidget()
@@ -2714,6 +2727,15 @@ class MainWindow(QtWidgets.QMainWindow):
         self.scan_duplex.hide()
         self.scan_duplex.toggled.connect(self.source_changed)
         rl.addWidget(self.scan_duplex)
+        # Beidseitig ohne Wenden im Geraet: erst alle Vorderseiten, dann den Stapel umdrehen und die
+        # Rueckseiten – das Papier laeuft nur einfach durch, das schont die Einzugsrollen
+        self.scan_manual = QtWidgets.QCheckBox("Beidseitig von Hand (Stapel wenden)")
+        self.scan_manual.setToolTip("Erst alle Vorderseiten, dann den Stapel umdrehen und die Rückseiten scannen.\n"
+                                    "Schont den Einzug – nichts wird im Gerät gewendet.")
+        self.scan_manual.hide()
+        rl.addWidget(self.scan_manual)
+        self.scan_manual.toggled.connect(lambda on: on and self.scan_duplex.setChecked(False))
+        self.scan_duplex.toggled.connect(lambda on: on and self.scan_manual.setChecked(False))
         self.scan_source.currentIndexChanged.connect(self.source_changed)
         self.scan_crop = QtWidgets.QCheckBox("Kanten erkennen")
         rl.addWidget(self.scan_crop)
@@ -2761,6 +2783,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def source_changed(self, *_):
         feeder = self.is_feeder(self.scan_source.currentData())
         self.scan_duplex.setVisible(feeder and bool(getattr(self, "duplex_value", None)))
+        self.scan_manual.setVisible(feeder)
         # Aufloesungen und Scanbereiche nur, soweit die gewaehlte Quelle sie kann
         caps = getattr(self, "scan_caps", {}) or {}
         key = ("adf-duplex" if self.scan_duplex.isChecked() and self.scan_duplex.isVisible() else "adf") if feeder else "platen"
@@ -2806,7 +2829,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def scan_args(self):
         src = self.scan_source.currentData()
-        if self.is_feeder(src) and self.scan_duplex.isChecked() and getattr(self, "duplex_value", None):
+        if self.is_feeder(src) and self.scan_duplex.isChecked() and self.scan_duplex.isVisible() and \
+                getattr(self, "duplex_value", None):
             src = self.duplex_value
         return (self.scanner_combo.currentData(), self.scan_mode.currentData(), self.scan_res.currentData(),
                 src, self.scan_area.currentData(), self.scan_crop.isChecked())
@@ -2870,6 +2894,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.scan_saved = True
         self.page_view.clear()
         self.page_big.set_image(None)
+        self.md_bar.hide()
+        self.md_last = None
         self.pages.clear()
         self.scan_area_stack.setCurrentIndex(0)
 
@@ -2990,6 +3016,7 @@ class MainWindow(QtWidgets.QMainWindow):
         dev, mode, res, src, area, crop = self.scan_args()
         if not dev:
             return
+        manual = self.is_feeder(src) and self.scan_manual.isChecked() and self.scan_manual.isVisible()
         self.scan_btn.setEnabled(False)
         self.scan_btn.setText("Scanne…")
 
@@ -3000,13 +3027,91 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.status.showMessage(f"Scan fehlgeschlagen: {files}")
                 return
             self.scan_dpi = res or "300"
+            if manual:
+                self.manual_backs(dev, mode, res, src, area, crop, files)
+                return
             self.add_page_files(files)
             self.status.showMessage(f"{len(files)} Seite(n) gescannt.")
+        bg(lambda: scan(dev, mode, res, src, area, crop), done)
+
+    # ----- Beidseitig von Hand -----
+    def manual_merge(self, fronts, backs):
+        """Vorder- und Rueckseiten verzahnen; Reihenfolge/Drehung wie zuletzt eingestellt."""
+        rev = self.settings.value("manual_duplex/reverse", True, type=bool)
+        rot = self.settings.value("manual_duplex/rotate", False, type=bool)
+        backs = list(reversed(backs)) if rev else list(backs)
+        if rot:
+            backs = [self.rotated(f) for f in backs]
+        out = []
+        for i in range(max(len(fronts), len(backs))):
+            out += ([fronts[i]] if i < len(fronts) else []) + ([backs[i]] if i < len(backs) else [])
+        return out
+
+    @staticmethod
+    def rotated_name(f):
+        return re.sub(r"(\.\w+)$", r"-180\1", f)
+
+    def rotated(self, f):
+        target = self.rotated_name(f)
+        if not os.path.exists(target):
+            Image.open(f).rotate(180).save(target)
+        return target
+
+    def manual_toggle(self, key):
+        """Rueckseiten neu einsortieren und die Wahl fuer das naechste Mal merken."""
+        last = getattr(self, "md_last", None)
+        if not last:
+            return
+        fronts, backs = last
+        k = f"manual_duplex/{key}"
+        self.settings.setValue(k, not self.settings.value(k, key == "reverse", type=bool))
+        old = set(fronts) | set(backs) | {self.rotated_name(b) for b in backs}
+        rows = [i for i in range(self.page_view.count()) if self.page_view.item(i).data(QtCore.Qt.UserRole) in old]
+        at = rows[0] if rows else self.page_view.count()
+        for i in reversed(rows):
+            self.page_view.takeItem(i)
+        tail = [self.page_view.takeItem(at).data(QtCore.Qt.UserRole) for _ in range(self.page_view.count() - at)]
+        self.add_page_files(self.manual_merge(fronts, backs) + tail)
+        self.page_view.setCurrentRow(at + (1 if len(fronts) > 0 and backs else 0))
+
+    def manual_backs(self, dev, mode, res, src, area, crop, fronts):
+        box = QtWidgets.QMessageBox(self)
+        box.setWindowTitle("Rückseiten scannen")
+        box.setIcon(QtWidgets.QMessageBox.Information)
+        box.setText(f"{len(fronts)} Vorderseite(n) gescannt.")
+        box.setInformativeText("Nimm den Stapel aus der Ablage, dreh ihn um, ohne ihn neu zu sortieren, "
+                               "und leg ihn wieder in den Einzug.")
+        go = box.addButton("Rückseiten scannen", QtWidgets.QMessageBox.AcceptRole)
+        box.addButton("Nur Vorderseiten behalten", QtWidgets.QMessageBox.RejectRole)
+        box.exec()
+        if box.clickedButton() is not go:
+            self.add_page_files(fronts)
+            self.status.showMessage(f"{len(fronts)} Seite(n) gescannt.")
+            return
+        self.scan_btn.setEnabled(False)
+        self.scan_btn.setText("Scanne Rückseiten…")
+
+        def done(ok, backs):
+            self.scan_btn.setEnabled(True)
+            self.scan_btn.setText("Scannen")
+            if not ok:
+                self.add_page_files(fronts)
+                self.status.showMessage(f"Rückseiten fehlgeschlagen: {backs} – Vorderseiten sind übernommen.")
+                return
+            self.md_last = (fronts, backs)
+            self.add_page_files(self.manual_merge(fronts, backs))
+            self.md_bar.show()
+            msg = f"{len(fronts)} Blatt beidseitig gescannt."
+            if len(backs) != len(fronts):
+                msg = f"Achtung: {len(fronts)} Vorderseiten, aber {len(backs)} Rückseiten – bitte prüfen."
+            self.status.showMessage(msg)
         bg(lambda: scan(dev, mode, res, src, area, crop), done)
 
     def delete_pages(self):
         for item in self.page_view.selectedItems():
             self.page_view.takeItem(self.page_view.row(item))
+        self.md_bar.hide()   # nach dem Loeschen passt die Zuordnung Vorder-/Rueckseite nicht mehr sicher
+        self.md_last = None
         self.renumber_pages()
         self.show_page(self.page_view.currentItem())
         if not self.page_view.count():
