@@ -6,9 +6,24 @@
 
 Print, scan, fax, check ink or toner and maintain – for **printers on Linux**, in one simple window. Works over **USB, LAN and Wi-Fi** and with printers from any manufacturer that Linux supports. Standalone: no manufacturer software needed – for HP printers, fax, printhead cleaning and printer reports go straight through the printer's built-in interface.
 
-Unofficial and independent – not made by or affiliated with any printer manufacturer. Formerly called *Druckzentrale*. The interface is in German.
+Unofficial and independent – not made by or affiliated with any printer manufacturer. Formerly called *Druckzentrale*. Available in 13 languages.
 
 ![Overview](docs/overview.png)
+
+## Privacy
+
+**No ads, no tracking, no location data, no account.** Unlike many manufacturer apps, PrintDock does not ask where you are, shows no advertising, sends no usage statistics and does not need a manufacturer account to print or scan.
+
+What it does connect to – and only for this:
+
+| Where | Why |
+|---|---|
+| your printers in the local network / USB | printing, scanning, levels, maintenance |
+| GitHub (this project) | update check, printer template and language file for *your* printer and language only |
+| the picture address in your printer's template (e.g. the manufacturer's image server) | the device picture, downloaded once |
+| a PrintDock Server – only if you log in to one | the printers your company or authority has released for you |
+
+Nothing else, and never the content of what you print or scan.
 
 ## Installation
 
@@ -89,6 +104,21 @@ Drucken, Scannen, Faxen, Tinte oder Toner und Wartung – für **Drucker unter L
 Inoffiziell und unabhängig – nicht von einem Druckerhersteller und nicht mit einem verbunden. Früher hieß es *Druckzentrale*.
 
 ![Übersicht](docs/overview.png)
+
+## Datenschutz
+
+**Keine Werbung, kein Tracking, keine Positionsdaten, kein Konto.** Anders als viele Hersteller-Apps fragt PrintDock nicht nach deinem Standort, zeigt keine Werbung, schickt keine Nutzungsstatistiken und braucht kein Herstellerkonto zum Drucken oder Scannen.
+
+Womit es sich verbindet – und nur dafür:
+
+| Wohin | Wozu |
+|---|---|
+| deine Drucker im eigenen Netz / per USB | Drucken, Scannen, Füllstände, Wartung |
+| GitHub (dieses Projekt) | Update-Prüfung, Druckervorlage und Sprachdatei nur für *deinen* Drucker und *deine* Sprache |
+| die Bildadresse aus der Vorlage deines Druckers (z. B. Bildserver des Herstellers) | das Gerätebild, einmal geladen |
+| ein PrintDock-Server – nur wenn du dich dort anmeldest | die Drucker, die deine Firma oder dein Amt für dich freigegeben hat |
+
+Sonst nichts, und nie der Inhalt dessen, was du druckst oder scannst.
 
 ## Installation
 
