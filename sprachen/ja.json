@@ -434,5 +434,8 @@
  "LAN / WLAN": "LAN / Wi-Fi",
  "Server (Firma / Amt)": "サーバー（企業 / 官公庁）",
  "Adresse des PrintDock-Servers (z. B. https://drucker.example.org):": "PrintDock サーバーのアドレス（例：https://printers.example.org）：",
- "Beim ersten Start fragt PrintDock nach Benutzername und Passwort für den Server.": "初回起動時に、PrintDock がサーバーのユーザー名とパスワードを尋ねます。"
+ "Beim ersten Start fragt PrintDock nach Benutzername und Passwort für den Server.": "初回起動時に、PrintDock がサーバーのユーザー名とパスワードを尋ねます。",
+ "Windows konnte den Drucker nicht hinzufügen: {0}": "Windows がプリンターを追加できませんでした：{0}",
+ "Drucker „{0}“ lässt sich nicht öffnen.": "プリンター「{0}」を開けません。",
+ "USB-Drucker richtet Windows selbst ein – einfach anstecken.": "USB プリンターは Windows が自動で設定します – 接続するだけです。"
 }

@@ -434,5 +434,8 @@
  "LAN / WLAN": "LAN / Wi-Fi",
  "Server (Firma / Amt)": "Sunucu (şirket / kurum)",
  "Adresse des PrintDock-Servers (z. B. https://drucker.example.org):": "PrintDock sunucusunun adresi (ör. https://yazicilar.example.org):",
- "Beim ersten Start fragt PrintDock nach Benutzername und Passwort für den Server.": "İlk başlatmada PrintDock sunucu için kullanıcı adını ve parolayı sorar."
+ "Beim ersten Start fragt PrintDock nach Benutzername und Passwort für den Server.": "İlk başlatmada PrintDock sunucu için kullanıcı adını ve parolayı sorar.",
+ "Windows konnte den Drucker nicht hinzufügen: {0}": "Windows yazıcıyı ekleyemedi: {0}",
+ "Drucker „{0}“ lässt sich nicht öffnen.": "“{0}” yazıcısı açılamıyor.",
+ "USB-Drucker richtet Windows selbst ein – einfach anstecken.": "USB yazıcıları Windows kendisi kurar – takmanız yeterli."
 }

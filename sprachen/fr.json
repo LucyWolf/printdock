@@ -434,5 +434,8 @@
  "LAN / WLAN": "LAN / Wi-Fi",
  "Server (Firma / Amt)": "Serveur (entreprise / administration)",
  "Adresse des PrintDock-Servers (z. B. https://drucker.example.org):": "Adresse du serveur PrintDock (p. ex. https://imprimantes.example.org) :",
- "Beim ersten Start fragt PrintDock nach Benutzername und Passwort für den Server.": "Au premier démarrage, PrintDock demande le nom d'utilisateur et le mot de passe du serveur."
+ "Beim ersten Start fragt PrintDock nach Benutzername und Passwort für den Server.": "Au premier démarrage, PrintDock demande le nom d'utilisateur et le mot de passe du serveur.",
+ "Windows konnte den Drucker nicht hinzufügen: {0}": "Windows n'a pas pu ajouter l'imprimante : {0}",
+ "Drucker „{0}“ lässt sich nicht öffnen.": "Impossible d'ouvrir l'imprimante « {0} ».",
+ "USB-Drucker richtet Windows selbst ein – einfach anstecken.": "Windows installe lui-même les imprimantes USB – il suffit de la brancher."
 }

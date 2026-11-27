@@ -434,5 +434,8 @@
  "LAN / WLAN": "LAN / Wi-Fi",
  "Server (Firma / Amt)": "服务器（企业 / 机构）",
  "Adresse des PrintDock-Servers (z. B. https://drucker.example.org):": "PrintDock 服务器地址（例如 https://printers.example.org）：",
- "Beim ersten Start fragt PrintDock nach Benutzername und Passwort für den Server.": "首次启动时，PrintDock 会询问服务器的用户名和密码。"
+ "Beim ersten Start fragt PrintDock nach Benutzername und Passwort für den Server.": "首次启动时，PrintDock 会询问服务器的用户名和密码。",
+ "Windows konnte den Drucker nicht hinzufügen: {0}": "Windows 无法添加打印机：{0}",
+ "Drucker „{0}“ lässt sich nicht öffnen.": "无法打开打印机“{0}”。",
+ "USB-Drucker richtet Windows selbst ein – einfach anstecken.": "Windows 会自动设置 USB 打印机 – 直接插上即可。"
 }

@@ -6,7 +6,7 @@ name: Release
 on:
   push:
     branches: [main]
-    paths: [printdock.py]
+    paths: [printdock.py, windows/**]
   workflow_dispatch:
 
 permissions:
@@ -15,6 +15,9 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    outputs:
+      neu: ${{ steps.v.outputs.neu }}
+      ver: ${{ steps.v.outputs.ver }}
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -58,3 +61,62 @@ jobs:
             linux/PrintDock-arch-installer.desktop linux/PrintDock-deb-installer.desktop \
             linux/PrintDock-installer.desktop "${EXTRA[@]}" --target "$GITHUB_SHA" \
             --title "PrintDock v$VER" --generate-notes --latest
+
+  # Windows-Fassung: auf einem echten Windows pruefen, als .exe bauen, Setup bauen, still installieren und
+  # deinstallieren, dann PrintDock-setup.exe an dasselbe Release haengen
+  windows:
+    needs: release
+    if: needs.release.outputs.neu == 'ja'
+    runs-on: windows-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VER: ${{ needs.release.outputs.ver }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Pakete
+        run: pip install pyside6 pillow zeroconf pyinstaller
+      - name: Auf echtem Windows pruefen
+        shell: pwsh
+        run: python windows/ci_check.py
+      - name: Programm bauen
+        shell: pwsh
+        run: |
+          pyinstaller --noconfirm --windowed --onedir --name PrintDock --collect-all zeroconf `
+            --distpath dist --workpath build printdock.py
+          if (-not (Test-Path dist\PrintDock\PrintDock.exe)) { throw "PrintDock.exe fehlt" }
+      - name: Programm starten (unsichtbar) und Bildschirmfoto
+        shell: pwsh
+        run: |
+          $env:QT_QPA_PLATFORM = "offscreen"
+          $env:DZ_SELFTEST = "$env:RUNNER_TEMP\printdock.png"
+          $p = Start-Process dist\PrintDock\PrintDock.exe -PassThru
+          if (-not $p.WaitForExit(90000)) { $p.Kill(); throw "PrintDock beendet sich nicht" }
+          if (-not (Test-Path $env:DZ_SELFTEST)) { throw "kein Bildschirmfoto – PrintDock ist nicht gestartet" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-bildschirmfoto
+          path: ${{ runner.temp }}/printdock.png
+      - name: Setup bauen
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          $lang = "${env:ProgramFiles(x86)}\Inno Setup 6\Languages"
+          Invoke-WebRequest "https://raw.githubusercontent.com/jrsoftware/issrc/main/Files/Languages/Unofficial/ChineseSimplified.isl" -OutFile "$lang\ChineseSimplified.isl"
+          iscc /DAppVersion=$env:VER windows\PrintDock.iss
+          if (-not (Test-Path dist\PrintDock-setup.exe)) { throw "Setup fehlt" }
+      - name: Setup testen (still installieren und deinstallieren)
+        shell: pwsh
+        run: |
+          $p = Start-Process dist\PrintDock-setup.exe -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/NOLAUNCH" -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "Setup: Fehlercode $($p.ExitCode)" }
+          if (-not (Test-Path "$env:LOCALAPPDATA\Programs\PrintDock\PrintDock.exe")) { throw "nichts installiert" }
+          if (-not (Test-Path "$env:APPDATA\PrintDock\sprachen\en.json")) { throw "Sprachdateien fehlen" }
+          Get-Content "$env:APPDATA\PrintDock\sprache"
+          $u = Start-Process "$env:LOCALAPPDATA\Programs\PrintDock\unins000.exe" -ArgumentList "/VERYSILENT" -PassThru -Wait
+          if ($u.ExitCode -ne 0) { throw "Deinstallation: Fehlercode $($u.ExitCode)" }
+      - name: An das Release haengen
+        shell: bash
+        run: gh release upload "v$VER" dist/PrintDock-setup.exe --clobber

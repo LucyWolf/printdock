@@ -29,12 +29,15 @@ except ImportError:
     Image = None
 
 APP_NAME = "PrintDock"
-APP_VERSION = "1.0.49"
+APP_VERSION = "1.0.50"
 # Frueher „HP Druckzentrale“, dann „Druckzentrale“; migrate_old_install() zieht alte Installationen um.
 UPDATE_REPO = "LucyWolf/printdock"
 # Mit echten Geraeten ausprobiert (Modell, Verbindung, was geprueft wurde)
 TESTED_PRINTERS = ["HP OfficeJet Pro 8620", "HP Color Laser MFP 178nwg"]
-INSTALL_DIR = os.path.expanduser("~/.local/share/printdock")
+WINDOWS = sys.platform == "win32"
+FROZEN = bool(getattr(sys, "frozen", False))   # als .exe gebaut (Windows-Setup)
+INSTALL_DIR = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "PrintDock") if WINDOWS \
+    else os.path.expanduser("~/.local/share/printdock")
 DESKTOP_FILE = os.path.expanduser("~/.local/share/applications/printdock.desktop")
 OLD_NAMES = ["hp-druckzentrale", "druckzentrale"]   # fruehere Ordner-, Menue- und Einstellungsnamen
 
@@ -52,6 +55,14 @@ LANG_URL = "https://raw.githubusercontent.com/{repo}/main/sprachen/{code}.json"
 
 
 def system_language():
+    if WINDOWS:   # Windows setzt kein LANG: Sprache der Oberflaeche beim System erfragen
+        try:
+            import ctypes
+            import locale
+            code = locale.windows_locale.get(ctypes.windll.kernel32.GetUserDefaultUILanguage(), "")[:2].lower()
+            return code if code in LANGUAGES else "en"
+        except Exception:
+            return "en"
     for var in ("LANGUAGE", "LC_ALL", "LC_MESSAGES", "LANG"):
         code = (os.environ.get(var) or "").split(":")[0][:2].lower()
         if code in LANGUAGES:
@@ -129,7 +140,8 @@ NEEDED_PACKAGES = ["python-pycups", "sane", "sane-airscan", "ipp-usb", "python-p
 # ---------- Hilfen ----------
 def run(cmd, timeout=30, cwd=None):
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, cwd=cwd)
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, cwd=cwd,
+                           **({"creationflags": 0x08000000, "encoding": "utf-8", "errors": "replace"} if WINDOWS else {}))
         return r.returncode, r.stdout, r.stderr
     except FileNotFoundError:
         return -1, "", tr("{0} nicht gefunden", cmd[0])
@@ -232,6 +244,423 @@ class Printer:
         return next((u for u in self.uris if u.startswith(("ipp://", "ipps://")) and ".local" not in u), None)
 
 
+# ---------- Windows ----------
+# Unter Windows gibt es kein CUPS, SANE und Avahi. PrintDock spricht dort selbst mit den Geraeten: IPP fuer Status und
+# Fuellstaende, eSCL zum Scannen, mDNS zum Finden. Gedruckt wird ueber die Windows-Druckerwarteschlange (Qt), eingerichtet
+# mit den Windows-eigenen PowerShell-Befehlen. Nur offene Standards, keine Herstellersoftware – wie unter Linux.
+def powershell(script, timeout=60):
+    return run(["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command",
+                "[Console]::OutputEncoding=[Text.Encoding]::UTF8; $ErrorActionPreference='Stop'; " + script], timeout)
+
+
+def ps_json(script, timeout=60):
+    rc, out, err = powershell(script + " | ConvertTo-Json -Depth 3 -Compress", timeout)
+    if rc != 0:
+        raise RuntimeError((err or out).strip()[:300] or "PowerShell")
+    out = out.strip()
+    if not out:
+        return []
+    data = json.loads(out)
+    return data if isinstance(data, list) else [data]
+
+
+def ps_quote(s):
+    return "'" + str(s).replace("'", "''") + "'"
+
+
+# --- IPP (RFC 8010), nur was PrintDock braucht: Attribute eines Druckers abfragen ---
+def _ipp_attr(tag, name, value):
+    n = name.encode("utf-8")
+    v = value if isinstance(value, bytes) else str(value).encode("utf-8")
+    return bytes([tag]) + len(n).to_bytes(2, "big") + n + len(v).to_bytes(2, "big") + v
+
+
+def ipp_parse(data):
+    """IPP-Antwort -> {Name: Wert oder Liste}. Inhalte von Sammlungen (z. B. media-col) werden uebersprungen."""
+    if len(data) < 8:
+        raise RuntimeError("IPP: leere Antwort")
+    status = int.from_bytes(data[2:4], "big")
+    if status >= 0x0400:
+        raise RuntimeError(f"IPP-Status 0x{status:04x}")
+    attrs, name, depth, i = {}, None, 0, 8
+    while i < len(data):
+        tag = data[i]
+        i += 1
+        if tag == 0x03:
+            break
+        if tag < 0x10:   # neue Attributgruppe
+            name = None
+            continue
+        nl = int.from_bytes(data[i:i + 2], "big")
+        n = data[i + 2:i + 2 + nl].decode("utf-8", "replace")
+        i += 2 + nl
+        vl = int.from_bytes(data[i:i + 2], "big")
+        v = data[i + 2:i + 2 + vl]
+        i += 2 + vl
+        if tag == 0x34:
+            depth += 1
+            continue
+        if tag == 0x37:
+            depth = max(0, depth - 1)
+            continue
+        if depth or tag == 0x4A or tag in (0x10, 0x12, 0x13):
+            continue
+        if tag in (0x21, 0x23):
+            val = int.from_bytes(v, "big", signed=True) if v else 0
+        elif tag == 0x22:
+            val = bool(v and v[0])
+        elif tag in (0x35, 0x36):
+            ll = int.from_bytes(v[0:2], "big")
+            tl = int.from_bytes(v[2 + ll:4 + ll], "big")
+            val = v[4 + ll:4 + ll + tl].decode("utf-8", "replace")
+        elif tag in (0x30, 0x31, 0x32, 0x33):
+            continue   # Datum, Aufloesung, Bereich: hier nicht gebraucht
+        else:
+            val = v.decode("utf-8", "replace")
+        if n:
+            name = n
+            attrs[name] = val
+        elif name is not None:
+            old = attrs.get(name)
+            attrs[name] = (old if isinstance(old, list) else [old]) + [val]
+    return attrs
+
+
+def ipp_get_attributes(host, requested, port=631, path="/ipp/print", timeout=8):
+    body = b"\x02\x00" + (0x000B).to_bytes(2, "big") + (1).to_bytes(4, "big") + b"\x01"
+    body += _ipp_attr(0x47, "attributes-charset", "utf-8") + _ipp_attr(0x48, "attributes-natural-language", "en")
+    body += _ipp_attr(0x45, "printer-uri", f"ipp://{host}:{port}{path}")
+    for k, a in enumerate(requested):
+        body += _ipp_attr(0x44, "requested-attributes" if k == 0 else "", a)
+    body += b"\x03"
+    req = urllib.request.Request(f"http://{host}:{port}{path}", data=body, method="POST",
+                                 headers={"Content-Type": "application/ipp", "User-Agent": f"PrintDock/{APP_VERSION}"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return ipp_parse(r.read(4 * 1024 * 1024))
+
+
+def device_attrs(host, requested):
+    """Attribute direkt beim Geraet: unter Linux ueber pycups, sonst (Windows) ueber den eigenen IPP-Client."""
+    if cups is not None and not WINDOWS:
+        return cups.Connection(host=host, port=631).getPrinterAttributes(
+            uri=f"ipp://{host}:631/ipp/print", requested_attributes=requested)
+    return ipp_get_attributes(host, requested)
+
+
+# --- mDNS (Windows; unter Linux erledigt das Avahi) ---
+def mdns_browse(service, wait=3.0):
+    """[{name, ip, port, txt}] fuer einen Dienst wie „_ipp._tcp.local.“ – braucht das Python-Paket zeroconf."""
+    try:
+        from zeroconf import Zeroconf, ServiceBrowser
+    except ImportError:
+        return []
+    zc = Zeroconf()
+    names = set()
+
+    class Listener:
+        def add_service(self, _zc, _t, name):
+            names.add(name)
+
+        def update_service(self, _zc, _t, name):
+            names.add(name)
+
+        def remove_service(self, *_a):
+            pass
+    try:
+        ServiceBrowser(zc, service, Listener())
+        time.sleep(wait)
+        out = []
+        for name in sorted(names):
+            info = zc.get_service_info(service, name, 2000)
+            if not info:
+                continue
+            ipv4 = [a for a in info.parsed_addresses() if ":" not in a]
+            txt = {k.decode("utf-8", "replace"): (v or b"").decode("utf-8", "replace")
+                   for k, v in (info.properties or {}).items()}
+            if ipv4:
+                out.append({"name": name.split("._")[0], "ip": ipv4[0], "port": info.port, "txt": txt})
+        return out
+    finally:
+        zc.close()
+
+
+WIN_VIRTUAL = re.compile(r"pdf|xps|onenote|\bfax\b|send to|snagit|anydesk", re.I)
+WIN_GENERIC_DRIVER = re.compile(r"ipp class driver|mopria|universal|generic", re.I)
+
+
+def discover_windows():
+    """Windows-Drucker (Warteschlangen) und Netzwerkdrucker im eigenen Netz (mDNS) zusammenfuehren."""
+    printers = []
+    try:
+        ports = {d.get("Name"): d for d in ps_json("Get-PrinterPort | Select-Object Name,PrinterHostAddress")}
+        for d in ps_json("Get-Printer | Select-Object Name,PortName,DriverName"):
+            name, port, driver = d.get("Name") or "", d.get("PortName") or "", d.get("DriverName") or ""
+            if not name or WIN_VIRTUAL.search(name) or WIN_VIRTUAL.search(driver):
+                continue
+            p = Printer()
+            p.queue = p.info = name
+            p.model = "" if WIN_GENERIC_DRIVER.search(driver) else driver
+            m = re.search(r"(?:https?|ipps?)://\[?([^/\]:]+)", port)
+            host = (ports.get(port) or {}).get("PrinterHostAddress") or (m.group(1) if m else "")
+            if re.match(r"(usb|dot4)", port, re.I):
+                p.uris = ["usb://" + name]
+            elif host:
+                p.host = host
+                p.uris = [f"ipp://{host}:631/ipp/print"]
+            else:
+                p.uris = ["win://" + port]   # z. B. WSD-Anschluss: ohne Adresse kein Status
+            printers.append(p)
+    except Exception:
+        pass
+    for svc in mdns_browse("_ipp._tcp.local."):
+        p = next((q for q in printers if q.host == svc["ip"]), None)
+        if p is None:
+            p = Printer()
+            p.host = svc["ip"]
+            p.info = svc["name"]
+            p.uris = [f"ipp://{svc['ip']}:{svc['port'] or 631}/{svc['txt'].get('rp') or 'ipp/print'}"]
+            printers.append(p)
+        p.model = p.model or svc["txt"].get("ty", "")
+    for p in printers:   # Modell beim Geraet erfragen, wenn Windows nur einen allgemeinen Treiber kennt
+        if p.host and not p.model:
+            try:
+                p.model = str(ipp_get_attributes(p.host, ["printer-make-and-model"], timeout=3)
+                              .get("printer-make-and-model") or "")
+            except Exception:
+                pass
+    return printers
+
+
+def win_add_printer(name, uri):
+    url = re.sub(r"^ipp://", "http://", re.sub(r"^ipps://", "https://", uri))
+    rc, out, err = powershell(f"Add-Printer -Name {ps_quote(name)} -IppURL {ps_quote(url)}", 180)
+    if rc != 0:
+        raise RuntimeError(tr("Windows konnte den Drucker nicht hinzufügen: {0}", (err or out).strip()[:200]))
+
+
+def parse_page_ranges(text):
+    """„1-3,5“ -> {0,1,2,4}; leer -> None (alle Seiten)."""
+    pages = set()
+    for part in (text or "").replace(" ", "").split(","):
+        m = re.fullmatch(r"(\d+)(?:-(\d+))?", part)
+        if m:
+            a, b = int(m.group(1)), int(m.group(2) or m.group(1))
+            pages.update(range(min(a, b) - 1, max(a, b)))
+    return pages or None
+
+
+def pdf_images(path, dpi=200, pages=None):
+    """PDF-Seiten als QImage (Qt rendert selbst – unter Windows gibt es kein pdftoppm)."""
+    from PySide6 import QtPdf
+    doc = QtPdf.QPdfDocument()
+    doc.load(path)
+    if doc.status() != QtPdf.QPdfDocument.Status.Ready:
+        raise RuntimeError(tr("PDF nicht lesbar: {0} ({1})", os.path.basename(path), doc.error()))
+    out = []
+    for i in range(doc.pageCount()):
+        if pages is not None and i not in pages:
+            continue
+        pt = doc.pagePointSize(i)
+        out.append(doc.render(i, QtCore.QSize(int(pt.width() / 72 * dpi), int(pt.height() / 72 * dpi))))
+    doc.close()
+    return out
+
+
+def win_print_files(queue, files, opts):
+    """Drucken ueber die Windows-Warteschlange: PDF-Seiten und Bilder malt Qt auf den Drucker."""
+    from PySide6 import QtPrintSupport
+    pr = QtPrintSupport.QPrinter(QtPrintSupport.QPrinterInfo.printerInfo(queue),
+                                 QtPrintSupport.QPrinter.PrinterMode.HighResolution)
+    pr.setDocName(os.path.basename(files[0]))
+    pr.setCopyCount(max(1, int(opts.get("copies", 1) or 1)))
+    sides = opts.get("sides", "")
+    pr.setDuplex(QtPrintSupport.QPrinter.DuplexMode.DuplexLongSide if "long" in sides else
+                 QtPrintSupport.QPrinter.DuplexMode.DuplexShortSide if "short" in sides else
+                 QtPrintSupport.QPrinter.DuplexMode.DuplexNone)
+    pr.setColorMode(QtPrintSupport.QPrinter.ColorMode.GrayScale if opts.get("print-color-mode") == "monochrome"
+                    else QtPrintSupport.QPrinter.ColorMode.Color)
+    m = re.search(r"_([\d.]+)x([\d.]+)(mm|in)$", opts.get("media", ""))
+    if m:
+        f = 25.4 if m.group(3) == "in" else 1
+        pr.setPageSize(QtGui.QPageSize(QtCore.QSizeF(float(m.group(1)) * f, float(m.group(2)) * f),
+                                       QtGui.QPageSize.Unit.Millimeter))
+    pages = parse_page_ranges(opts.get("page-ranges"))
+    fit = opts.get("fit-to-page") == "true"
+    texts = [f for f in files if f.lower().endswith(".txt")]
+    painter = QtGui.QPainter()
+    first = True
+    dpi = min(300, pr.resolution())
+    for f in files:
+        if f in texts:
+            continue
+        imgs = pdf_images(f, dpi, pages) if f.lower().endswith(".pdf") else [QtGui.QImage(f)]
+        for img in imgs:
+            if img.isNull():
+                continue
+            if first:
+                if not painter.begin(pr):
+                    raise RuntimeError(tr("Drucker „{0}“ lässt sich nicht öffnen.", queue))
+                first = False
+            else:
+                pr.newPage()
+            area = painter.viewport()
+            size = img.size()
+            if fit or size.width() > area.width() or size.height() > area.height() or f.lower().endswith(".pdf"):
+                size.scale(area.size(), QtCore.Qt.AspectRatioMode.KeepAspectRatio)
+            painter.drawImage(QtCore.QRect(area.x(), area.y(), size.width(), size.height()), img)
+    if not first:
+        painter.end()
+    for f in texts:   # Textdateien druckt Qt als eigenes Dokument
+        with open(f, encoding="utf-8", errors="replace") as fh:
+            doc = QtGui.QTextDocument(fh.read())
+        doc.print_(pr)
+    return os.path.basename(files[0])
+
+
+def win_jobs(queue):
+    out = {}
+    for j in ps_json(f"Get-PrintJob -PrinterName {ps_quote(queue)} | Select-Object Id,DocumentName,JobStatus"):
+        status = str(j.get("JobStatus") or "")
+        out[int(j.get("Id") or 0)] = {"job-name": j.get("DocumentName") or "",
+                                      "job-state": 5 if "Printing" in status else 4 if "Paused" in status else 3}
+    return out
+
+
+# --- eSCL (Scannen direkt beim Geraet, ohne SANE) ---
+ESCL_NS = 'xmlns:scan="http://schemas.hp.com/imaging/escl/2011/05/03" xmlns:pwg="http://www.pwg.org/schemas/2010/12/sm"'
+
+
+def escl_open(url, data=None, method="GET", timeout=30):
+    req = urllib.request.Request(url, data=data, method=method,
+                                 headers={"Content-Type": "text/xml"} if data is not None else {})
+    return urllib.request.urlopen(req, timeout=timeout, context=_ssl_ctx() if url.startswith("https") else None)
+
+
+def escl_base(ip, rs="eSCL"):
+    """Erreichbare eSCL-Adresse eines Geraets (https zuerst) oder None."""
+    for scheme in ("https", "http"):
+        base = f"{scheme}://{ip}/{rs.strip('/')}"
+        try:
+            with escl_open(base + "/ScannerCapabilities", timeout=5) as r:
+                if b"ScannerCapabilities" in r.read(200000):
+                    return base
+        except Exception:
+            continue
+    return None
+
+
+def list_scanners_windows():
+    found, seen = [], set()
+    hosts = [(s["ip"], s["txt"].get("rs") or "eSCL", s["txt"].get("ty") or s["name"])
+             for s in mdns_browse("_uscan._tcp.local.") + mdns_browse("_uscans._tcp.local.")]
+    hosts += [(s["ip"], "eSCL", s["txt"].get("ty") or s["name"]) for s in mdns_browse("_ipp._tcp.local.")]
+    for ip, rs, name in hosts:
+        if ip in seen:
+            continue
+        seen.add(ip)
+        base = escl_base(ip, rs)
+        if base:
+            found.append(("escl:" + base, f"{name} (ip={ip})"))
+    return found
+
+
+def escl_options(base):
+    with escl_open(base + "/ScannerCapabilities", timeout=10) as r:
+        xml = r.read().decode("utf-8", "replace")
+    modes = {"RGB24": "Color", "Grayscale8": "Gray", "BlackAndWhite1": "Lineart"}
+    mode_list = [modes[m] for m in modes if f">{m}<" in xml]
+    res = sorted({int(x) for x in re.findall(r"<scan:XResolution>(\d+)", xml)})
+    srcs = (["Flatbed"] if "<scan:Platen>" in xml else []) + (["ADF"] if "<scan:Adf>" in xml else []) + \
+        (["ADF Duplex"] if "AdfDuplexInputCaps" in xml else [])
+    return {"mode": (mode_list or ["Color"], "Color"),
+            "resolution": ([str(x) for x in res] or ["300"], "300" if 300 in res else str(res[0]) if res else "300"),
+            "source": (srcs or ["Flatbed"], (srcs or ["Flatbed"])[0])}
+
+
+def escl_scan(base, mode, res, source, area=None, crop=False):
+    feeder = bool(source) and bool(re.search(r"adf|feeder", source, re.I))
+    duplex = feeder and "duplex" in source.lower()
+    if area:
+        w, h = round(area[0] / 25.4 * 300), round(area[1] / 25.4 * 300)
+    else:
+        w, h = 2480, 3508   # A4; der Scanner beschneidet selbst auf seine groesste Flaeche
+        try:
+            with escl_open(base + "/ScannerCapabilities", timeout=10) as r:
+                xml = r.read().decode("utf-8", "replace")
+            blk = re.search(r"<scan:Platen>(.*?)</scan:Platen>", xml, re.S) if not feeder else None
+            if blk:
+                mw, mh = re.search(r"<scan:MaxWidth>(\d+)", blk.group(1)), re.search(r"<scan:MaxHeight>(\d+)", blk.group(1))
+                if mw and mh:
+                    w, h = int(mw.group(1)), int(mh.group(1))
+        except Exception:
+            pass
+    color = {"Color": "RGB24", "Gray": "Grayscale8", "Lineart": "BlackAndWhite1"}.get(mode or "Color", "RGB24")
+    dpi = int(res or 300)
+    xml = (f'<?xml version="1.0" encoding="UTF-8"?><scan:ScanSettings {ESCL_NS}><pwg:Version>2.0</pwg:Version>'
+           f'<pwg:ScanRegions><pwg:ScanRegion><pwg:ContentRegionUnits>escl:ThreeHundredthsOfInches</pwg:ContentRegionUnits>'
+           f'<pwg:XOffset>0</pwg:XOffset><pwg:YOffset>0</pwg:YOffset><pwg:Width>{w}</pwg:Width><pwg:Height>{h}</pwg:Height>'
+           f'</pwg:ScanRegion></pwg:ScanRegions><pwg:InputSource>{"Feeder" if feeder else "Platen"}</pwg:InputSource>'
+           f'<scan:ColorMode>{color}</scan:ColorMode><scan:XResolution>{dpi}</scan:XResolution>'
+           f'<scan:YResolution>{dpi}</scan:YResolution><pwg:DocumentFormat>image/jpeg</pwg:DocumentFormat>'
+           f'<scan:DocumentFormatExt>image/jpeg</scan:DocumentFormatExt>'
+           f'{"<scan:Duplex>true</scan:Duplex>" if duplex else ""}</scan:ScanSettings>')
+    with escl_open(base + "/ScanJobs", data=xml.encode("utf-8"), method="POST", timeout=30) as r:
+        loc = r.headers.get("Location") or ""
+    if not loc:
+        raise RuntimeError(tr("Scan fehlgeschlagen"))
+    job = urllib.parse.urljoin(base + "/", loc).rstrip("/")
+    tmp = tempfile.mkdtemp(prefix="dz-scan-")
+    files, busy = [], 0
+    while True:
+        try:
+            with escl_open(job + "/NextDocument", timeout=180) as r:
+                data = r.read()
+        except urllib.error.HTTPError as e:
+            if e.code == 503 and busy < 60:   # Geraet ist noch beschaeftigt
+                busy += 1
+                time.sleep(1)
+                continue
+            if e.code == 404 and files:   # keine weiteren Seiten
+                break
+            raise RuntimeError(tr("Scan fehlgeschlagen: {0}", f"HTTP {e.code}"))
+        f = os.path.join(tmp, f"seite{len(files) + 1:03d}.jpg")
+        with open(f, "wb") as fh:
+            fh.write(data)
+        files.append(f)
+        if not feeder:
+            break
+    if crop and Image is not None:
+        for f in files:
+            autocrop(f)
+    return files
+
+
+_TRAY = None
+
+
+def tray_notify(title, text):
+    """Windows: Mitteilung ueber das Infobereich-Symbol (notify-send gibt es dort nicht)."""
+    global _TRAY
+    app = QtWidgets.QApplication.instance()
+    if app is None:
+        return
+    if _TRAY is None:
+        _TRAY = QtWidgets.QSystemTrayIcon(dot_icon(ACCENT), app)
+        _TRAY.setToolTip(APP_NAME)
+        _TRAY.show()
+    _TRAY.showMessage(title, text, QtWidgets.QSystemTrayIcon.MessageIcon.Information, 8000)
+
+
+def restart_self():
+    """PrintDock neu starten (Sprache gewechselt, Update installiert)."""
+    if WINDOWS:
+        args = [sys.executable] + ([] if FROZEN else [os.path.abspath(sys.argv[0])]) + sys.argv[1:]
+        subprocess.Popen(args, creationflags=0x00000008 | 0x00000200)   # DETACHED_PROCESS | NEW_PROCESS_GROUP
+        QtWidgets.QApplication.quit()
+        return
+    os.execv(sys.executable, [sys.executable, os.path.realpath(__file__)] + sys.argv[1:])
+
+
 def uri_ids(uri):
     serial = re.search(r"serial=([^&]+)", uri)
     uuid = re.search(r"uuid=([^&]+)", uri)
@@ -258,6 +687,8 @@ def service_name(uri):
 
 def discover():
     """Alle Drucker: eingerichtete Warteschlangen und von CUPS gefundene Geraete (USB, Netzwerk)."""
+    if WINDOWS:
+        return discover_windows()
     if cups is None:
         raise RuntimeError(tr("python-pycups fehlt"))
     conn = cups.Connection()
@@ -355,8 +786,7 @@ def query_status(p):
         import socket
         try:
             socket.create_connection((p.host, 631), timeout=2).close()
-            attrs = cups.Connection(host=p.host, port=631).getPrinterAttributes(
-                uri=f"ipp://{p.host}:631/ipp/print", requested_attributes=STATUS_ATTRS) if cups else None
+            attrs = device_attrs(p.host, STATUS_ATTRS)
         except Exception:   # Verbindung abgelehnt, Zeitueberschreitung oder IPP-Fehler
             res.update(state=tr("Nicht erreichbar"), reasons=["offline"])
             if queue_attrs:
@@ -379,11 +809,9 @@ def query_status(p):
         for key in ("sides-supported", "print-color-mode-supported", "media-supported", "print-quality-supported"):
             res["supported"][key] = _list((queue_attrs or attrs).get(key))
     # CUPS kennt die Tinte einer Warteschlange oft erst nach dem ersten Auftrag: dann den Drucker direkt fragen
-    if not res["markers"] and cups is not None and re.fullmatch(r"[\d.]+", p.host or ""):
+    if not res["markers"] and (cups is not None or WINDOWS) and re.fullmatch(r"[\d.]+", p.host or ""):
         try:
-            direct = cups.Connection(host=p.host, port=631).getPrinterAttributes(
-                uri=f"ipp://{p.host}:631/ipp/print",
-                requested_attributes=["marker-names", "marker-levels", "marker-colors", "printer-state-reasons"])
+            direct = device_attrs(p.host, ["marker-names", "marker-levels", "marker-colors", "printer-state-reasons"])
             res["reasons"] += [r for r in _list(direct.get("printer-state-reasons"))
                                if r != "none" and r not in res["reasons"]]
             names, levels = _list(direct.get("marker-names")), _list(direct.get("marker-levels"))
@@ -391,7 +819,7 @@ def query_status(p):
             for i, name in enumerate(names):
                 res["markers"].append({"name": name, "level": levels[i] if i < len(levels) else -1,
                                        "color": colors[i] if i < len(colors) else ""})
-        except (cups.IPPError, RuntimeError):
+        except Exception:
             pass
     return res
 
@@ -432,6 +860,12 @@ def reason_base(r):
 
 def notify(title, text):
     """Desktop-Mitteilung (KDE, GNOME …); fehlt notify-send, bleibt es bei der Anzeige im Fenster."""
+    if WINDOWS:
+        try:
+            tray_notify(title, text)
+        except Exception:
+            pass
+        return
     if shutil.which("notify-send"):
         try:
             subprocess.Popen(["notify-send", "-a", APP_NAME, "-i", "printer", title, text],
@@ -473,7 +907,7 @@ def marker_color(m):
 # Druckers, der gerade eingebunden wird, und merkt sie sich; gibt es keine, gilt STANDARD_TEMPLATE.
 # Treiberpakete installiert PrintDock erst, wenn ein Drucker sie wirklich braucht (aeltere Geraete ohne IPP).
 TEMPLATE_URL = "https://raw.githubusercontent.com/{repo}/main/vorlagen/{slug}.json"
-TEMPLATE_DIR = os.path.expanduser("~/.local/share/printdock/vorlagen")
+TEMPLATE_DIR = os.path.join(INSTALL_DIR, "vorlagen")
 STANDARD_TEMPLATE = {
     "name": tr("Standard"),
     # nur fuer Drucker ohne treiberloses Drucken; freie Treiber fuer sehr viele aeltere Geraete
@@ -565,6 +999,8 @@ def package_tool():
 
 def ensure_packages(by_distro):
     """Fehlende Pakete aus {"arch": [...], "deb": [...], ...} mit einer Passwortabfrage nachinstallieren."""
+    if WINDOWS:
+        return   # Windows bringt fuer Netzwerkdrucker den IPP-Treiber selbst mit
     key, install, have = package_tool()
     if not key:
         return
@@ -708,6 +1144,10 @@ def setup_printers_batch(printers):
         cmds.append("lpadmin -p " + shlex.quote(name) + " -E -v " + shlex.quote(uri) + " -m everywhere")
     if not cmds:
         return 0
+    if WINDOWS:
+        for p, name in zip([p for p in printers if (p.best_setup_uri() or "").startswith(("ipp://", "ipps://"))], names):
+            win_add_printer(name, p.best_setup_uri())
+        return len(names)
     rc, out, err = run(["pkexec", "/bin/sh", "-c", " && ".join(cmds)], 300)
     if rc != 0:
         raise RuntimeError((err or out or "lpadmin").strip())
@@ -717,6 +1157,11 @@ def setup_printers_batch(printers):
 def setup_printer(p):
     uri = p.best_setup_uri()
     name = re.sub(r"[^A-Za-z0-9_-]+", "_", p.model or p.info or "Drucker").strip("_")[:60] or tr("Drucker")
+    if WINDOWS:
+        if not p.host:
+            raise RuntimeError(tr("USB-Drucker richtet Windows selbst ein – einfach anstecken."))
+        win_add_printer(name, f"ipp://{p.host}:631/ipp/print")
+        return tr("Eingerichtet als „{0}“.", name)
     cmd = ["pkexec", "lpadmin", "-p", name, "-E", "-v", uri, "-m", "everywhere"]
     if not uri.startswith(("ipp://", "ipps://", "dnssd://")):
         # Ohne IPP (aeltere USB- oder Netzwerkdrucker): erst jetzt die Treiber laut Vorlage installieren,
@@ -853,7 +1298,15 @@ def fax_pages(files):
     """Dokumente (PDF, Bilder) -> Faxseiten: schwarzweiss, 1728 Punkte breit, 200 dpi, hoechstens 2200 Zeilen."""
     pages = []
     for f in files:
-        if f.lower().endswith(".pdf"):
+        if f.lower().endswith(".pdf") and (WINDOWS or not shutil.which("pdftoppm")):
+            srcs = []
+            for q in pdf_images(f, 200):   # Qt rendert das PDF selbst
+                buf = QtCore.QBuffer()
+                buf.open(QtCore.QIODevice.OpenModeFlag.WriteOnly)
+                q.save(buf, "PNG")
+                import io
+                srcs.append(Image.open(io.BytesIO(bytes(buf.data()))))
+        elif f.lower().endswith(".pdf"):
             tmp = tempfile.mkdtemp(prefix="dz-faxpdf-")
             rc, out, err = run(["pdftoppm", "-r", "200", "-gray", "-png", f, os.path.join(tmp, "s")], 300)
             if rc != 0:
@@ -1020,6 +1473,11 @@ def cups_command(queue, cmd):
 
 
 def remove_queue(name):
+    if WINDOWS:
+        rc, out, err = powershell(f"Remove-Printer -Name {ps_quote(name)}", 60)
+        if rc != 0:
+            raise RuntimeError((err or out).strip()[:200])
+        return
     rc, out, err = run(["pkexec", "lpadmin", "-x", name], 60)
     if rc != 0:
         raise RuntimeError((err or out or tr("lpadmin fehlgeschlagen")).strip())
@@ -1027,6 +1485,8 @@ def remove_queue(name):
 
 # ---------- Scannen ----------
 def list_scanners():
+    if WINDOWS:
+        return list_scanners_windows()
     rc, out, err = run(["scanimage", "-L"], 60)
     if rc == -1:
         raise RuntimeError(err)
@@ -1054,6 +1514,8 @@ COMMON_DPI = [75, 100, 150, 200, 300, 600, 1200]
 
 
 def scanner_options(dev):
+    if dev.startswith("escl:"):
+        return escl_options(dev[5:])
     rc, out, err = run(["scanimage", "-d", dev, "-A"], 60)
     opts = {}
     for line in out.splitlines():
@@ -1126,6 +1588,8 @@ def autocrop(path):
 
 
 def scan(dev, mode, res, source, area=None, crop=False):
+    if dev.startswith("escl:"):
+        return escl_scan(dev[5:], mode, res, source, area, crop)
     tmp = tempfile.mkdtemp(prefix="dz-scan-")
     args = ["scanimage", "-d", dev, "--format=png"]
     if area:
@@ -1254,6 +1718,14 @@ def latest_release():
 
 
 def install_update(tag):
+    if WINDOWS and FROZEN:
+        # Windows-Fassung: das neue Setup holen und starten; es schliesst PrintDock und startet es danach neu
+        url = f"https://github.com/{UPDATE_REPO}/releases/download/{tag}/PrintDock-setup.exe"
+        target = os.path.join(tempfile.mkdtemp(prefix="printdock-update-"), "PrintDock-setup.exe")
+        with urllib.request.urlopen(url, timeout=120) as r, open(target, "wb") as fh:
+            shutil.copyfileobj(r, fh)
+        subprocess.Popen([target, "/SILENT", "/SP-", "/SUPPRESSMSGBOXES", "/NORESTART"], creationflags=0x00000008)
+        return "setup"
     me = os.path.realpath(__file__)
     url = f"https://github.com/{UPDATE_REPO}/releases/download/{tag}/printdock.py"
     with urllib.request.urlopen(url, timeout=60) as r:
@@ -1477,6 +1949,12 @@ class SetupWizard(QtWidgets.QDialog):
             bg(find_queue, lambda ok2, q: (setattr(self, "queue", q), self.test_btn.setVisible(bool(ok2 and q))))
 
     def test_page(self):
+        if WINDOWS and getattr(self, "queue", None):
+            q = self.queue
+            bg(lambda: run(["rundll32", "printui.dll,PrintUIEntry", "/k", "/n", q], 60),
+               lambda ok, res: self.setup_label.setText(self.setup_label.text() + (
+                   tr("\n\nTestseite gesendet.") if ok and res[0] == 0 else tr("\n\nTestseite fehlgeschlagen: {0}", res))))
+            return
         test = next((f for f in ("/usr/share/cups/data/testprint", "/usr/share/cups/data/default-testpage.pdf")
                      if os.path.exists(f)), None)
         if test and getattr(self, "queue", None):
@@ -1652,7 +2130,7 @@ def real_name(p):
     return name
 
 
-IMAGE_DIR = os.path.expanduser("~/.local/share/printdock/bilder")
+IMAGE_DIR = os.path.join(INSTALL_DIR, "bilder")
 
 
 def printer_image_target(p):
@@ -1920,7 +2398,7 @@ class MainWindow(QtWidgets.QMainWindow):
             dialog.accept()
         self.status.showMessage(tr("PrintDock startet neu, damit die neue Sprache gilt."))
         QtWidgets.QApplication.processEvents()
-        os.execv(sys.executable, [sys.executable, os.path.abspath(sys.argv[0])] + sys.argv[1:])
+        restart_self()
 
     def scroll_page(self):
         sc = QtWidgets.QScrollArea()
@@ -2332,6 +2810,8 @@ class MainWindow(QtWidgets.QMainWindow):
             return
 
         def work():
+            if WINDOWS:
+                return win_jobs(p.queue)
             jobs = cups.Connection().getJobs(which_jobs="not-completed", requested_attributes=[
                 "job-id", "job-name", "job-state", "job-printer-uri"])
             return {jid: j for jid, j in jobs.items() if str(j.get("job-printer-uri", "")).endswith("/" + p.queue)}
@@ -2357,7 +2837,9 @@ class MainWindow(QtWidgets.QMainWindow):
         item = self.job_list.currentItem()
         jid = item.data(QtCore.Qt.UserRole) if item else None
         if jid:
-            bg(lambda: cups.Connection().cancelJob(jid),
+            q = self.current.queue if self.current else ""
+            bg(lambda: powershell(f"Remove-PrintJob -PrinterName {ps_quote(q)} -ID {int(jid)}", 60) if WINDOWS
+               else cups.Connection().cancelJob(jid),
                lambda ok, res: (self.status.showMessage(tr("Auftrag abgebrochen.") if ok else tr("Abbrechen fehlgeschlagen: {0}", res)),
                                 self.refresh_jobs()))
 
@@ -2367,7 +2849,8 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         if QtWidgets.QMessageBox.question(self, APP_NAME, tr("Alle offenen Druckaufträge abbrechen?")) != QtWidgets.QMessageBox.Yes:
             return
-        bg(lambda: cups.Connection().cancelAllJobs(name=p.queue),
+        bg(lambda: powershell(f"Get-PrintJob -PrinterName {ps_quote(p.queue)} | Remove-PrintJob", 60) if WINDOWS
+           else cups.Connection().cancelAllJobs(name=p.queue),
            lambda ok, res: (self.status.showMessage(tr("Alle Aufträge abgebrochen.") if ok else tr("Fehlgeschlagen: {0}", res)),
                             self.refresh_jobs()))
 
@@ -2835,10 +3318,15 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.update_btn.setText(tr("⬆ Update {0}", self.update_tag))
                 QtWidgets.QMessageBox.warning(self, APP_NAME, tr("Update fehlgeschlagen: {0}", res))
                 return
-            os.execv(sys.executable, [sys.executable, os.path.realpath(__file__)] + sys.argv[1:])
+            if res == "setup":
+                QtWidgets.QApplication.quit()   # das Setup ersetzt die Programmdatei und startet sie neu
+            else:
+                restart_self()
         bg(lambda: install_update(self.update_tag), done)
 
     def check_dependencies(self):
+        if WINDOWS:
+            return   # die Windows-Fassung bringt alles mit
         missing = []
         if cups is None:
             missing.append("python-pycups")
@@ -2977,6 +3465,8 @@ class MainWindow(QtWidgets.QMainWindow):
             opts["fit-to-page"] = "true"
 
         def work():
+            if WINDOWS:
+                return win_print_files(p.queue, files, opts)
             conn = cups.Connection()
             return conn.printFiles(p.queue, files, os.path.basename(files[0]), opts)
 
@@ -2988,6 +3478,11 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def test_page(self):
         p = self.current
+        if WINDOWS and p and p.queue:   # Windows druckt seine eigene Testseite
+            bg(lambda: run(["rundll32", "printui.dll,PrintUIEntry", "/k", "/n", p.queue], 60),
+               lambda ok, res: self.status.showMessage(tr("Testseite gesendet.") if ok and res[0] == 0
+                                                       else tr("Testseite fehlgeschlagen: {0}", res)))
+            return
         test = next((f for f in ("/usr/share/cups/data/testprint", "/usr/share/cups/data/default-testpage.pdf")
                      if os.path.exists(f)), None)
         if not p or not p.queue or not test:
@@ -3730,7 +4225,7 @@ def migrate_old_install():
 
 def main():
     global _bridge
-    moved = migrate_old_install()
+    moved = None if WINDOWS else migrate_old_install()
     if moved:
         os.execv(sys.executable, [sys.executable, moved] + sys.argv[1:])
     app = QtWidgets.QApplication(sys.argv)
