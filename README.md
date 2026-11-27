@@ -57,6 +57,10 @@ The sidebar lists your printers; the dot shows the state (green ready, orange me
 
 When a printer is added, PrintDock downloads **only the template for that model** from [`vorlagen/`](vorlagen/) and remembers it. It knows whether a driver is needed, which maintenance and fax functions exist, default paper and quirks. Without a template the standard applies: everything is asked from the printer itself, and only printers without driverless printing get the free drivers (Gutenprint, Foomatic). New templates are available to everyone as soon as they are uploaded.
 
+## Languages
+
+PrintDock speaks German, English, French, Spanish, Italian, Portuguese, Dutch, Polish, Turkish, Russian, Ukrainian, Chinese and Japanese. The installer detects the system language and offers the list once; it can be changed at any time under *Info*. Only the chosen language is downloaded. The translations are machine-made – corrections are welcome in `sprachen/<code>.json`; `tools/sprachen_pruefen.py` checks them.
+
 ## Tested printers
 
 - HP OfficeJet Pro 8620
@@ -132,6 +136,10 @@ Die Seitenleiste zeigt deine Drucker; der Punkt zeigt den Zustand (grün bereit,
 ## Druckervorlagen
 
 Beim Einbinden lädt PrintDock **nur die Vorlage dieses Modells** aus [`vorlagen/`](vorlagen/) und merkt sie sich. Darin steht, ob ein Treiber nötig ist, welche Wartung und ob Fax es gibt, das Standardpapier und Besonderheiten. Ohne Vorlage gilt der Standard: alles wird beim Drucker selbst abgefragt, und nur Drucker ohne treiberloses Drucken bekommen die freien Treiber (Gutenprint, Foomatic). Neue Vorlagen sind nach dem Hochladen sofort für alle da.
+
+## Sprachen
+
+PrintDock gibt es auf Deutsch, Englisch, Französisch, Spanisch, Italienisch, Portugiesisch, Niederländisch, Polnisch, Türkisch, Russisch, Ukrainisch, Chinesisch und Japanisch. Der Installer erkennt die Systemsprache und bietet die Liste einmal zur Auswahl an; umstellen lässt sie sich jederzeit unter *Info*. Geladen wird nur die gewählte Sprache. Die Übersetzungen sind maschinell – Verbesserungen gern in `sprachen/<kürzel>.json`; `tools/sprachen_pruefen.py` prüft sie.
 
 ## Getestete Drucker
 

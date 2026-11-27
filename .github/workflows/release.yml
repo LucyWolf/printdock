@@ -42,6 +42,7 @@ jobs:
           python3 -m py_compile printdock.py
           pip install -q pyflakes && python3 -m pyflakes printdock.py
           for f in linux/*.sh; do bash -n "$f"; done
+          python3 tools/sprachen_pruefen.py
       - name: Release erstellen
         if: steps.v.outputs.neu == 'ja'
         run: |

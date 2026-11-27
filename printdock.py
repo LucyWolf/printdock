@@ -28,14 +28,100 @@ except ImportError:
     Image = None
 
 APP_NAME = "PrintDock"
-APP_VERSION = "1.0.47"
+APP_VERSION = "1.0.48"
 # Frueher „HP Druckzentrale“, dann „Druckzentrale“; migrate_old_install() zieht alte Installationen um.
 UPDATE_REPO = "LucyWolf/printdock"
 # Mit echten Geraeten ausprobiert (Modell, Verbindung, was geprueft wurde)
-TESTED_PRINTERS = ["HP OfficeJet Pro 8620"]
+TESTED_PRINTERS = ["HP OfficeJet Pro 8620", "HP Color Laser MFP 178nwg"]
 INSTALL_DIR = os.path.expanduser("~/.local/share/printdock")
 DESKTOP_FILE = os.path.expanduser("~/.local/share/applications/printdock.desktop")
 OLD_NAMES = ["hp-druckzentrale", "druckzentrale"]   # fruehere Ordner-, Menue- und Einstellungsnamen
+
+# ---------- Sprachen ----------
+# Die Texte im Programm sind deutsch; tr() schlaegt sie in der gewaehlten Sprache nach. Wie bei den Druckervorlagen
+# wird nur die eigene Sprache geladen (sprachen/<kuerzel>.json im GitHub-Projekt) und gemerkt, dazu Englisch als
+# Rueckfall fuer Texte, die noch nicht uebersetzt sind. Fehlt alles, bleibt es deutsch – nichts geht kaputt.
+# Die Wahl steht in ~/.local/share/printdock/sprache (schreibt auch der Installer); ohne Eintrag gilt die Systemsprache.
+LANGUAGES = {"de": "Deutsch", "en": "English", "fr": "Français", "es": "Español", "it": "Italiano",
+             "pt": "Português", "nl": "Nederlands", "pl": "Polski", "tr": "Türkçe", "ru": "Русский",
+             "uk": "Українська", "zh": "中文", "ja": "日本語"}
+LANG_DIR = os.path.join(INSTALL_DIR, "sprachen")
+LANG_FILE = os.path.join(INSTALL_DIR, "sprache")
+LANG_URL = "https://raw.githubusercontent.com/{repo}/main/sprachen/{code}.json"
+
+
+def system_language():
+    for var in ("LANGUAGE", "LC_ALL", "LC_MESSAGES", "LANG"):
+        code = (os.environ.get(var) or "").split(":")[0][:2].lower()
+        if code in LANGUAGES:
+            return code
+        if code and code not in ("c", "po"):
+            return "en"   # Sprache, die PrintDock nicht kennt: Englisch versteht man eher als Deutsch
+    return "en"
+
+
+def chosen_language():
+    try:
+        with open(LANG_FILE, encoding="utf-8") as f:
+            code = f.read().strip()
+        if code in LANGUAGES:
+            return code
+    except OSError:
+        pass
+    return system_language()
+
+
+def language_table(code, refresh=False):
+    """Uebersetzungen einer Sprache (deutscher Text -> Uebersetzung); einmal laden, dann gemerkt."""
+    if code == "de" or code not in LANGUAGES:
+        return {}
+    path = os.path.join(LANG_DIR, code + ".json")
+    if refresh or not os.path.exists(path):
+        try:
+            with urllib.request.urlopen(LANG_URL.format(repo=UPDATE_REPO, code=code), timeout=6) as r:
+                data = json.loads(r.read().decode("utf-8"))
+            if isinstance(data, dict):
+                os.makedirs(LANG_DIR, exist_ok=True)
+                tmp = f"{path}.{os.getpid()}.tmp"
+                with open(tmp, "w", encoding="utf-8") as f:
+                    json.dump(data, f, ensure_ascii=False, indent=1)
+                os.replace(tmp, path)
+        except (OSError, ValueError):
+            pass   # kein Netz: gemerkte Fassung nehmen, sonst deutsch
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        return {k: v for k, v in data.items() if isinstance(k, str) and isinstance(v, str) and v}
+    except (OSError, ValueError):
+        return {}
+
+
+LANG = chosen_language()
+_TR = language_table(LANG)
+_TR_FALLBACK = language_table("en") if LANG not in ("de", "en") else {}
+
+
+def tr(text, *args):
+    """Text in der gewaehlten Sprache; Platzhalter {0}, {1} … werden mit args gefuellt."""
+    t = _TR.get(text) or _TR_FALLBACK.get(text) or text
+    if args:
+        try:
+            return t.format(*args)
+        except (IndexError, KeyError, ValueError):
+            return text.format(*args)   # kaputte Uebersetzung: lieber deutsch als Absturz
+    return t
+
+
+def refresh_languages():
+    """Im Hintergrund: Sprachdateien einmal am Tag neu holen, damit neue Uebersetzungen ankommen."""
+    for code in {LANG} | ({"en"} if _TR_FALLBACK else set()):
+        path = os.path.join(LANG_DIR, code + ".json")
+        try:
+            old = time.time() - os.path.getmtime(path) > 86400
+        except OSError:
+            old = code != "de"
+        if old:
+            language_table(code, refresh=True)
 NEEDED_PACKAGES = ["python-pycups", "sane", "sane-airscan", "ipp-usb", "python-pillow"]
 
 
@@ -45,9 +131,9 @@ def run(cmd, timeout=30, cwd=None):
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, cwd=cwd)
         return r.returncode, r.stdout, r.stderr
     except FileNotFoundError:
-        return -1, "", f"{cmd[0]} nicht gefunden"
+        return -1, "", tr("{0} nicht gefunden", cmd[0])
     except subprocess.TimeoutExpired:
-        return -1, "", f"{cmd[0]}: Zeitüberschreitung"
+        return -1, "", tr("{0}: Zeitüberschreitung", cmd[0])
 
 
 def is_hp(text):
@@ -119,7 +205,7 @@ class Printer:
         u = " ".join(self.uris)
         if "usb" in u or re.search(r"://(localhost|127\.0\.0\.1)", u):
             return "USB"
-        return "Netzwerk (LAN/WLAN)"
+        return tr("Netzwerk (LAN/WLAN)")
 
     @property
     def title(self):
@@ -168,7 +254,7 @@ def service_name(uri):
 def discover():
     """Alle Drucker: eingerichtete Warteschlangen und von CUPS gefundene Geraete (USB, Netzwerk)."""
     if cups is None:
-        raise RuntimeError("python-pycups fehlt")
+        raise RuntimeError(tr("python-pycups fehlt"))
     conn = cups.Connection()
     printers = []
 
@@ -267,7 +353,7 @@ def query_status(p):
             attrs = cups.Connection(host=p.host, port=631).getPrinterAttributes(
                 uri=f"ipp://{p.host}:631/ipp/print", requested_attributes=STATUS_ATTRS) if cups else None
         except Exception:   # Verbindung abgelehnt, Zeitueberschreitung oder IPP-Fehler
-            res.update(state="Nicht erreichbar", reasons=["offline"])
+            res.update(state=tr("Nicht erreichbar"), reasons=["offline"])
             if queue_attrs:
                 for key in ("sides-supported", "print-color-mode-supported", "media-supported", "print-quality-supported"):
                     res["supported"][key] = _list(queue_attrs.get(key))
@@ -275,7 +361,7 @@ def query_status(p):
     else:
         attrs = queue_attrs
     if attrs:
-        state = {3: "Bereit", 4: "Druckt", 5: "Angehalten"}.get(attrs.get("printer-state"), "")
+        state = {3: tr("Bereit"), 4: tr("Druckt"), 5: tr("Angehalten")}.get(attrs.get("printer-state"), "")
         res["state"] = state
         res["message"] = attrs.get("printer-state-message", "")
         res["reasons"] = [r for r in _list(attrs.get("printer-state-reasons")) if r != "none"]
@@ -312,22 +398,22 @@ def _list(v):
 
 
 REASONS_DE = {
-    "media-empty": "Papier leer", "media-jam": "Papierstau", "media-needed": "Papier einlegen",
-    "door-open": "Klappe offen", "cover-open": "Deckel offen", "marker-supply-low": "Tinte fast leer",
-    "marker-supply-empty": "Tinte leer", "toner-low": "Toner fast leer", "toner-empty": "Toner leer",
-    "offline": "Drucker ist ausgeschaltet oder nicht im Netz", "paused": "Angehalten", "connecting-to-device": "Verbindet…",
-    "input-tray-missing": "Papierfach fehlt", "output-area-full": "Ausgabefach voll",
+    "media-empty": tr("Papier leer"), "media-jam": tr("Papierstau"), "media-needed": tr("Papier einlegen"),
+    "door-open": tr("Klappe offen"), "cover-open": tr("Deckel offen"), "marker-supply-low": tr("Tinte fast leer"),
+    "marker-supply-empty": tr("Tinte leer"), "toner-low": tr("Toner fast leer"), "toner-empty": tr("Toner leer"),
+    "offline": tr("Drucker ist ausgeschaltet oder nicht im Netz"), "paused": tr("Angehalten"), "connecting-to-device": tr("Verbindet…"),
+    "input-tray-missing": tr("Papierfach fehlt"), "output-area-full": tr("Ausgabefach voll"),
     # weitere Standardmeldungen (IPP/PWG), die Drucker melden koennen
-    "media-low": "Papier fast leer", "interlock-open": "Klappe offen", "output-tray-missing": "Ausgabefach fehlt",
-    "output-area-almost-full": "Ausgabefach fast voll", "marker-waste-almost-full": "Resttintenbehälter fast voll",
-    "marker-waste-full": "Resttintenbehälter voll", "opc-near-eol": "Bildtrommel bald verbraucht",
-    "opc-life-over": "Bildtrommel verbraucht", "developer-low": "Entwickler fast leer",
-    "developer-empty": "Entwickler leer", "fuser-over-temp": "Fixiereinheit zu heiß",
-    "fuser-under-temp": "Fixiereinheit heizt auf", "spool-area-full": "Druckspeicher voll",
-    "shutdown": "Drucker fährt herunter", "timed-out": "Drucker antwortet nicht",
-    "stopped-partly": "Teilweise angehalten", "stopping": "Hält an", "moving-to-paused": "Wird angehalten",
-    "media-path-cannot-duplex-media-selected": "Dieses Papier kann nicht beidseitig bedruckt werden",
-    "toner-almost-empty": "Toner fast leer", "ink-low": "Tinte fast leer", "ink-empty": "Tinte leer",
+    "media-low": tr("Papier fast leer"), "interlock-open": tr("Klappe offen"), "output-tray-missing": tr("Ausgabefach fehlt"),
+    "output-area-almost-full": tr("Ausgabefach fast voll"), "marker-waste-almost-full": tr("Resttintenbehälter fast voll"),
+    "marker-waste-full": tr("Resttintenbehälter voll"), "opc-near-eol": tr("Bildtrommel bald verbraucht"),
+    "opc-life-over": tr("Bildtrommel verbraucht"), "developer-low": tr("Entwickler fast leer"),
+    "developer-empty": tr("Entwickler leer"), "fuser-over-temp": tr("Fixiereinheit zu heiß"),
+    "fuser-under-temp": tr("Fixiereinheit heizt auf"), "spool-area-full": tr("Druckspeicher voll"),
+    "shutdown": tr("Drucker fährt herunter"), "timed-out": tr("Drucker antwortet nicht"),
+    "stopped-partly": tr("Teilweise angehalten"), "stopping": tr("Hält an"), "moving-to-paused": tr("Wird angehalten"),
+    "media-path-cannot-duplex-media-selected": tr("Dieses Papier kann nicht beidseitig bedruckt werden"),
+    "toner-almost-empty": tr("Toner fast leer"), "ink-low": tr("Tinte fast leer"), "ink-empty": tr("Tinte leer"),
 }
 # Diese Meldungen sind so wichtig, dass PrintDock beim ersten Auftreten zusaetzlich eine Desktop-Mitteilung zeigt
 REASONS_URGENT = {"media-jam", "media-empty", "media-needed", "door-open", "cover-open", "interlock-open",
@@ -354,8 +440,8 @@ def reason_text(r):
     return REASONS_DE.get(base, base)
 
 
-INK_DE = {"black": "Schwarz", "cyan": "Cyan", "magenta": "Magenta", "yellow": "Gelb", "photo black": "Fotoschwarz",
-          "tri-color": "Dreifarbig", "color": "Farbe", "gray": "Grau", "light cyan": "Hellcyan", "light magenta": "Hellmagenta"}
+INK_DE = {"black": tr("Schwarz"), "cyan": tr("Cyan"), "magenta": tr("Magenta"), "yellow": tr("Gelb"), "photo black": tr("Fotoschwarz"),
+          "tri-color": tr("Dreifarbig"), "color": tr("Farbe"), "gray": tr("Grau"), "light cyan": tr("Hellcyan"), "light magenta": tr("Hellmagenta")}
 
 
 def ink_name(name):
@@ -384,7 +470,7 @@ def marker_color(m):
 TEMPLATE_URL = "https://raw.githubusercontent.com/{repo}/main/vorlagen/{slug}.json"
 TEMPLATE_DIR = os.path.expanduser("~/.local/share/printdock/vorlagen")
 STANDARD_TEMPLATE = {
-    "name": "Standard",
+    "name": tr("Standard"),
     # nur fuer Drucker ohne treiberloses Drucken; freie Treiber fuer sehr viele aeltere Geraete
     "treiber": {"arch": ["gutenprint", "foomatic-db-engine", "foomatic-db", "foomatic-db-ppds"],
                 "deb": ["printer-driver-gutenprint", "foomatic-db-compressed-ppds"],
@@ -411,7 +497,17 @@ def get_template(p):
             data = json.load(f)
     except (OSError, ValueError):
         data = {}
-    return dict(STANDARD_TEMPLATE, **{k: v for k, v in data.items() if k in STANDARD_TEMPLATE})
+    # Hinweise gibt es je Sprache (hinweise_en, hinweise_fr …); die deutschen stehen unter „hinweise“
+    return dict(STANDARD_TEMPLATE, **{k: v for k, v in data.items() if k in STANDARD_TEMPLATE or k.startswith("hinweise_")})
+
+
+def template_hints(tmpl):
+    """Hinweise der Vorlage in der gewaehlten Sprache, sonst Englisch, sonst deutsch."""
+    if LANG != "de":
+        for key in (f"hinweise_{LANG}", "hinweise_en"):
+            if tmpl.get(key):
+                return tmpl[key]
+    return tmpl.get("hinweise") or []
 
 
 def fetch_template(p):
@@ -471,16 +567,16 @@ def ensure_packages(by_distro):
     if missing:
         rc, out, err = run(["pkexec"] + install + missing, 1800)
         if rc != 0:
-            raise RuntimeError("Treiber nicht installiert: " + " ".join(missing))
+            raise RuntimeError(tr("Treiber nicht installiert: ") + " ".join(missing))
         if key == "rpm" and is_atomic():
-            raise RuntimeError("Treiber installiert (" + " ".join(missing) + "). Auf diesem System werden sie "
-                               "erst nach einem Neustart aktiv – danach den Drucker bitte noch einmal einrichten.")
+            raise RuntimeError(tr("Treiber installiert ({0}). Auf diesem System werden sie erst nach einem Neustart "
+                                  "aktiv – danach den Drucker bitte noch einmal einrichten.", " ".join(missing)))
 
 
 # ---------- Einrichten ----------
 def setup_printer(p):
     uri = p.best_setup_uri()
-    name = re.sub(r"[^A-Za-z0-9_-]+", "_", p.model or p.info or "Drucker").strip("_")[:60] or "Drucker"
+    name = re.sub(r"[^A-Za-z0-9_-]+", "_", p.model or p.info or "Drucker").strip("_")[:60] or tr("Drucker")
     cmd = ["pkexec", "lpadmin", "-p", name, "-E", "-v", uri, "-m", "everywhere"]
     if not uri.startswith(("ipp://", "ipps://", "dnssd://")):
         # Ohne IPP (aeltere USB- oder Netzwerkdrucker): erst jetzt die Treiber laut Vorlage installieren,
@@ -492,13 +588,13 @@ def setup_printer(p):
         best = next((l for l in lines if "recommended" in l.lower()), None) or \
             next((l for l in lines if "gutenprint" in l.lower()), None) or (lines[0] if lines else None)
         if not best:
-            raise RuntimeError("Kein passender Treiber installiert. Neuere Drucker gehen treiberlos über "
-                               "Netzwerk oder „ipp-usb“; für ältere hilft der Treiber des Herstellers.")
+            raise RuntimeError(tr("Kein passender Treiber installiert. Neuere Drucker gehen treiberlos über "
+                               "Netzwerk oder „ipp-usb“; für ältere hilft der Treiber des Herstellers."))
         cmd[-1] = best.split()[0]
     rc, out, err = run(cmd, 120)
     if rc != 0:
-        raise RuntimeError((err or out or "lpadmin fehlgeschlagen").strip())
-    return f"Eingerichtet als „{name}“."
+        raise RuntimeError((err or out or tr("lpadmin fehlgeschlagen")).strip())
+    return tr("Eingerichtet als „{0}“.", name)
 
 
 # ---------- Fax: MH-Kodierung (ITU-T T.4, eindimensional) ----------
@@ -585,7 +681,7 @@ FAX_PAGE_XML = ('<?xml version="1.0" encoding="UTF-8" ?><FaxPCSendDyn ' + FAX_NS
                 '</PageConfig></FaxPCSendDyn>')
 FAX_CANCEL_XML = ('<?xml version="1.0" encoding="UTF-8"?><Job xmlns="http://www.hp.com/schemas/imaging/con/ledm/'
                   'jobs/2009/04/30"><JobUrl>%s</JobUrl><JobState>Canceled</JobState></Job>')
-FAX_STATES = {"Dialing": "wählt", "Connecting": "verbindet", "Transmitting": "sendet", "Idle": "bereit"}
+FAX_STATES = {"Dialing": tr("wählt"), "Connecting": tr("verbindet"), "Transmitting": tr("sendet"), "Idle": tr("bereit")}
 
 
 def fax_http(ip, method, path, body=b"", ctype="text/xml; charset=utf-8", timeout=30):
@@ -621,7 +717,7 @@ def fax_pages(files):
             tmp = tempfile.mkdtemp(prefix="dz-faxpdf-")
             rc, out, err = run(["pdftoppm", "-r", "200", "-gray", "-png", f, os.path.join(tmp, "s")], 300)
             if rc != 0:
-                raise RuntimeError(f"PDF nicht lesbar: {os.path.basename(f)} ({(err or out).strip()[:120]})")
+                raise RuntimeError(tr("PDF nicht lesbar: {0} ({1})", os.path.basename(f), (err or out).strip()[:120]))
             srcs = [Image.open(os.path.join(tmp, x)) for x in sorted(os.listdir(tmp))]
         else:
             srcs = [Image.open(f)]
@@ -633,20 +729,20 @@ def fax_pages(files):
             page.paste(im, ((FAX_WIDTH - im.width) // 2, 0))
             pages.append(page.point(lambda v: 255 if v >= 128 else 0).convert("1", dither=Image.Dither.NONE))
     if not pages:
-        raise RuntimeError("Keine Seiten zum Faxen.")
+        raise RuntimeError(tr("Keine Seiten zum Faxen."))
     return pages
 
 
 def fax_send(ip, number, files, progress, cancel):
     """Sendet ein Fax. progress(text) meldet den Stand, cancel ist ein threading.Event."""
-    progress("Seiten werden vorbereitet …")
+    progress(tr("Seiten werden vorbereitet …"))
     pages = [mh_encode(pg) for pg in fax_pages(files)]
     st, hdr, body = fax_http(ip, "POST", "/FaxPCSend/Job", (FAX_JOB_XML % (number, len(pages))).encode())
     if st != 201:
-        raise RuntimeError(f"Drucker nimmt keinen Faxauftrag an (HTTP {st}).")
+        raise RuntimeError(tr("Drucker nimmt keinen Faxauftrag an (HTTP {0}).", st))
     m = re.search(rb"/Jobs/JobList/\d+", " ".join(hdr.values()).encode() + b" " + body)
     if not m:
-        raise RuntimeError("Drucker hat keine Auftragsnummer geliefert.")
+        raise RuntimeError(tr("Drucker hat keine Auftragsnummer geliefert."))
     job = m.group().decode()
 
     def status():
@@ -658,7 +754,7 @@ def fax_send(ip, number, files, progress, cancel):
             res = _xml_field(status(), "ResourceURI")
             st, _, _ = fax_http(ip, "POST", res, (FAX_PAGE_XML % n).encode())
             if st != 202:
-                raise RuntimeError(f"Seite {n}: Einstellungen abgelehnt (HTTP {st}).")
+                raise RuntimeError(tr("Seite {0}: Einstellungen abgelehnt (HTTP {1}).", n, st))
             deadline = time.time() + 180
             while True:   # erst wenn der Drucker sendet, nimmt er das Seitenbild
                 if cancel.is_set():
@@ -666,34 +762,34 @@ def fax_send(ip, number, files, progress, cancel):
                 x = status()
                 mach, err = _xml_field(x, "FaxTxMachineStatus"), _xml_field(x, "FaxTxErrorStatus")
                 if err in ("NoAnswer", "CommunicationError", "PcDisconnect", "Stop", "Busy", "NoDialTone"):
-                    raise RuntimeError({"NoAnswer": "Gegenstelle antwortet nicht.", "Busy": "Besetzt.",
-                                        "NoDialTone": "Kein Wählton – Telefonleitung am Drucker angeschlossen?"}
-                                       .get(err, f"Fax abgebrochen ({err})."))
+                    raise RuntimeError({"NoAnswer": tr("Gegenstelle antwortet nicht."), "Busy": tr("Besetzt."),
+                                        "NoDialTone": tr("Kein Wählton – Telefonleitung am Drucker angeschlossen?")}
+                                       .get(err, tr("Fax abgebrochen ({0}).", err)))
                 if mach == "Transmitting":
                     break
-                progress(f"Drucker {FAX_STATES.get(mach, mach.lower() or 'bereitet vor')} …")
+                progress(tr("Drucker {0} …", FAX_STATES.get(mach, mach.lower() or 'bereitet vor')))
                 if time.time() > deadline:
-                    raise RuntimeError("Drucker meldet keine Verbindung (Zeitüberschreitung).")
+                    raise RuntimeError(tr("Drucker meldet keine Verbindung (Zeitüberschreitung)."))
                 time.sleep(1)
-            progress(f"Sende Seite {n} von {len(pages)} …")
+            progress(tr("Sende Seite {0} von {1} …", n, len(pages)))
             res = _xml_field(status(), "ResourceURI")
             st, _, _ = fax_http(ip, "POST", res, data, "application/octet-stream", timeout=120)
             if st != 202:
-                raise RuntimeError(f"Seite {n} abgelehnt (HTTP {st}).")
+                raise RuntimeError(tr("Seite {0} abgelehnt (HTTP {1}).", n, st))
         deadline = time.time() + 600
         while time.time() < deadline:   # warten, bis der Drucker fertig gesendet hat
             x = status()
             state, err = _xml_field(x, "JobState"), _xml_field(x, "FaxTxErrorStatus")
             if state in ("Completed",):
-                return f"Fax an {number} gesendet ({len(pages)} Seite(n))."
+                return tr("Fax an {0} gesendet ({1} Seite(n)).", number, len(pages))
             if state in ("Canceled", "Aborted") or err not in ("", "None", "NoError"):
-                raise RuntimeError(f"Fax nicht vollständig gesendet ({err or state}).")
-            progress(f"Drucker sendet … ({FAX_STATES.get(_xml_field(x, 'FaxTxMachineStatus'), 'läuft')})")
+                raise RuntimeError(tr("Fax nicht vollständig gesendet ({0}).", err or state))
+            progress(tr("Drucker sendet … ({0})", FAX_STATES.get(_xml_field(x, 'FaxTxMachineStatus'), 'läuft')))
             time.sleep(2)
-        return f"Fax an {number} übergeben – der Drucker sendet noch (siehe Faxprotokoll am Drucker)."
+        return tr("Fax an {0} übergeben – der Drucker sendet noch (siehe Faxprotokoll am Drucker).", number)
     except InterruptedError:
         fax_http(ip, "PUT", job, (FAX_CANCEL_XML % job).encode())
-        raise RuntimeError("Fax abgebrochen.")
+        raise RuntimeError(tr("Fax abgebrochen."))
 
 
 # ---------- Wartung ----------
@@ -734,34 +830,34 @@ def ledm_run(ip, job):
             with urllib.request.urlopen(req, timeout=15, context=_ssl_ctx() if url.startswith("https") else None):
                 return
         except urllib.error.HTTPError as e:
-            last = f"Drucker lehnt ab (HTTP {e.code})"
+            last = tr("Drucker lehnt ab (HTTP {0})", e.code)
             break
         except Exception as e:
             last = str(e)
-    raise RuntimeError(last or "Drucker nicht erreichbar")
+    raise RuntimeError(last or tr("Drucker nicht erreichbar"))
 
 
 LEDM_LABELS = {
-    "cleaningPage": ("quality", "Druckkopf reinigen – Stufe 1", "Bei Streifen oder blassen Farben. Druckt eine Seite."),
-    "cleaningPageLevel1": ("quality", "Druckkopf reinigen – Stufe 2", "Gründlicher, braucht mehr Tinte."),
-    "cleaningPageLevel2": ("quality", "Druckkopf reinigen – Stufe 2", "Gründlicher, braucht mehr Tinte."),
-    "cleaningPageLevel3": ("quality", "Druckkopf reinigen – Stufe 3", "Nur wenn Stufe 2 nicht reicht – viel Tinte."),
-    "cleaningVerificationPage": ("quality", "Reinigungs-Prüfseite", "Zeigt, ob alle Düsen wieder drucken."),
-    "pqDiagnosticsPage": ("quality", "Druckqualitäts-Diagnose", "Testseite zum Beurteilen von Farben und Streifen."),
-    "lineFeedCalibrationPage": ("quality", "Zeilenvorschub kalibrieren", "Gegen helle oder dunkle Querstreifen."),
-    "configurationPage": ("report", "Druckerstatusbericht", "Modell, Firmware, Füllstände, Einstellungen."),
-    "usagePage": ("report", "Nutzungsseite", "Gedruckte Seiten und Verbrauch."),
-    "diagnosticsPage": ("report", "Diagnoseseite", "Technische Angaben für die Fehlersuche."),
-    "networkDiagnosticPage": ("report", "Netzwerk-Testbericht", "Prüft LAN/WLAN-Verbindung."),
-    "networkSummary": ("report", "Netzwerkkonfiguration", "IP-Adresse und Netzwerkeinstellungen."),
-    "wirelessNetworkPage": ("report", "WLAN-Testbericht", "Signal und WLAN-Einstellungen."),
+    "cleaningPage": ("quality", tr("Druckkopf reinigen – Stufe 1"), tr("Bei Streifen oder blassen Farben. Druckt eine Seite.")),
+    "cleaningPageLevel1": ("quality", tr("Druckkopf reinigen – Stufe 2"), tr("Gründlicher, braucht mehr Tinte.")),
+    "cleaningPageLevel2": ("quality", tr("Druckkopf reinigen – Stufe 2"), tr("Gründlicher, braucht mehr Tinte.")),
+    "cleaningPageLevel3": ("quality", tr("Druckkopf reinigen – Stufe 3"), tr("Nur wenn Stufe 2 nicht reicht – viel Tinte.")),
+    "cleaningVerificationPage": ("quality", tr("Reinigungs-Prüfseite"), tr("Zeigt, ob alle Düsen wieder drucken.")),
+    "pqDiagnosticsPage": ("quality", tr("Druckqualitäts-Diagnose"), tr("Testseite zum Beurteilen von Farben und Streifen.")),
+    "lineFeedCalibrationPage": ("quality", tr("Zeilenvorschub kalibrieren"), tr("Gegen helle oder dunkle Querstreifen.")),
+    "configurationPage": ("report", tr("Druckerstatusbericht"), tr("Modell, Firmware, Füllstände, Einstellungen.")),
+    "usagePage": ("report", tr("Nutzungsseite"), tr("Gedruckte Seiten und Verbrauch.")),
+    "diagnosticsPage": ("report", tr("Diagnoseseite"), tr("Technische Angaben für die Fehlersuche.")),
+    "networkDiagnosticPage": ("report", tr("Netzwerk-Testbericht"), tr("Prüft LAN/WLAN-Verbindung.")),
+    "networkSummary": ("report", tr("Netzwerkkonfiguration"), tr("IP-Adresse und Netzwerkeinstellungen.")),
+    "wirelessNetworkPage": ("report", tr("WLAN-Testbericht"), tr("Signal und WLAN-Einstellungen.")),
 }
 
 CLEAN_LEVELS = ["cleaningPage", "cleaningPageLevel1", "cleaningPageLevel2", "cleaningPageLevel3"]
 
-CUPS_COMMANDS = {"Clean": ("Druckkopf reinigen", "Reinigung über den Druckertreiber."),
-                 "PrintSelfTestPage": ("Selbsttestseite", "Der Drucker druckt seine eigene Testseite."),
-                 "AutoConfigure": ("Optionen neu erkennen", "Fragt installierte Fächer usw. beim Drucker ab.")}
+CUPS_COMMANDS = {"Clean": (tr("Druckkopf reinigen"), tr("Reinigung über den Druckertreiber.")),
+                 "PrintSelfTestPage": (tr("Selbsttestseite"), tr("Der Drucker druckt seine eigene Testseite.")),
+                 "AutoConfigure": (tr("Optionen neu erkennen"), tr("Fragt installierte Fächer usw. beim Drucker ab."))}
 
 
 def cups_commands(queue):
@@ -786,7 +882,7 @@ def cups_command(queue, cmd):
 def remove_queue(name):
     rc, out, err = run(["pkexec", "lpadmin", "-x", name], 60)
     if rc != 0:
-        raise RuntimeError((err or out or "lpadmin fehlgeschlagen").strip())
+        raise RuntimeError((err or out or tr("lpadmin fehlgeschlagen")).strip())
 
 
 # ---------- Scannen ----------
@@ -856,8 +952,8 @@ def pretty_media(name):
         base = next((k for k in known if k.lower() == base.lower()), base)
         if base in known:
             nice = known[base][0]
-            return f"{nice} randlos", (5, nice)
-        return f"{base} randlos", (6, base)
+            return tr("{0} randlos", tr(nice)), (5, nice)
+        return tr("{0} randlos", base), (6, base)
     m = re.match(r"([a-z]+)_(.+)_([\d.]+)x([\d.]+)(mm|in)$", name)
     if not m:
         return name, (9, name)
@@ -868,11 +964,11 @@ def pretty_media(name):
         nice += " (JIS)"
     group = 0 if name == "iso_a4_210x297mm" else 1 if region == "iso" and not nice.startswith("Umschlag") else \
         2 if nice.startswith("Foto") else 4 if nice.startswith("Umschlag") else 3
-    return nice, (group, nice)
+    return tr(nice), (group, nice)   # Gruppen nach dem deutschen Namen, angezeigt uebersetzt
 
 
-SCAN_AREAS = [("Gesamter Scanbereich", None), ("A4", (210, 297)), ("A5", (148, 210)), ("Letter", (215.9, 279.4)), ("Legal", (215.9, 355.6)),
-              ("Foto 10×15", (101.6, 152.4)), ("Foto 13×18", (127, 178))]
+SCAN_AREAS = [(tr("Gesamter Scanbereich"), None), ("A4", (210, 297)), ("A5", (148, 210)), ("Letter", (215.9, 279.4)), ("Legal", (215.9, 355.6)),
+              (tr("Foto 10×15"), (101.6, 152.4)), (tr("Foto 13×18"), (127, 178))]
 
 
 def autocrop(path):
@@ -908,7 +1004,7 @@ def scan(dev, mode, res, source, area=None, crop=False):
     rc, out, err = run(args, 600, cwd=tmp)
     files = sorted(os.path.join(tmp, f) for f in os.listdir(tmp) if f.endswith(".png"))
     if not files:
-        raise RuntimeError((err or out or "Scan fehlgeschlagen").strip().splitlines()[-1])
+        raise RuntimeError((err or out or tr("Scan fehlgeschlagen")).strip().splitlines()[-1])
     if crop and Image is not None:
         for f in files:
             autocrop(f)
@@ -917,14 +1013,14 @@ def scan(dev, mode, res, source, area=None, crop=False):
 
 # Zustaende des Vorlageneinzugs laut eSCL (ScannerStatus/AdfState); fehlt ein Eintrag, ist es kein Problem
 ADF_PROBLEMS = {
-    "ScannerAdfJam": "Papierstau im Vorlageneinzug – Klappe oben öffnen und das Blatt in Laufrichtung herausziehen.",
-    "ScannerAdfHatchOpen": "Die Klappe des Vorlageneinzugs ist offen.",
-    "ScannerAdfMispick": "Der Einzug hat kein Blatt gegriffen – Stapel neu einlegen.",
-    "ScannerAdfMultipickDetected": "Mehrere Blätter auf einmal eingezogen – Stapel auffächern und neu einlegen.",
-    "ScannerAdfDuplexPageTooShort": "Blatt zu kurz zum Wenden – „Beidseitig von Hand“ benutzen.",
-    "ScannerAdfDuplexPageTooLong": "Blatt zu lang zum Wenden – „Beidseitig von Hand“ benutzen.",
-    "ScannerAdfInputTrayFailed": "Der Vorlageneinzug meldet einen Defekt.",
-    "ScannerAdfInputTrayOverloaded": "Zu viele Blätter im Vorlageneinzug.",
+    "ScannerAdfJam": tr("Papierstau im Vorlageneinzug – Klappe oben öffnen und das Blatt in Laufrichtung herausziehen."),
+    "ScannerAdfHatchOpen": tr("Die Klappe des Vorlageneinzugs ist offen."),
+    "ScannerAdfMispick": tr("Der Einzug hat kein Blatt gegriffen – Stapel neu einlegen."),
+    "ScannerAdfMultipickDetected": tr("Mehrere Blätter auf einmal eingezogen – Stapel auffächern und neu einlegen."),
+    "ScannerAdfDuplexPageTooShort": tr("Blatt zu kurz zum Wenden – „Beidseitig von Hand“ benutzen."),
+    "ScannerAdfDuplexPageTooLong": tr("Blatt zu lang zum Wenden – „Beidseitig von Hand“ benutzen."),
+    "ScannerAdfInputTrayFailed": tr("Der Vorlageneinzug meldet einen Defekt."),
+    "ScannerAdfInputTrayOverloaded": tr("Zu viele Blätter im Vorlageneinzug."),
 }
 
 
@@ -1069,7 +1165,7 @@ class SetupWizard(QtWidgets.QDialog):
 
     def __init__(self, parent):
         super().__init__(parent)
-        self.setWindowTitle(f"{APP_NAME} – Einrichtung")
+        self.setWindowTitle(tr("{0} – Einrichtung", APP_NAME))
         self.resize(640, 460)
         self.found = []
         self.chosen = None
@@ -1077,9 +1173,9 @@ class SetupWizard(QtWidgets.QDialog):
         self.stack = QtWidgets.QStackedWidget()
         lay.addWidget(self.stack, 1)
         nav = QtWidgets.QHBoxLayout()
-        self.skip = QtWidgets.QPushButton("Überspringen")
+        self.skip = QtWidgets.QPushButton(tr("Überspringen"))
         self.skip.clicked.connect(self.reject)
-        self.next = QtWidgets.QPushButton("Weiter")
+        self.next = QtWidgets.QPushButton(tr("Weiter"))
         self.next.setDefault(True)
         self.next.clicked.connect(self.forward)
         nav.addWidget(self.skip)
@@ -1090,17 +1186,17 @@ class SetupWizard(QtWidgets.QDialog):
         # 1: Drucker vorbereiten
         p1 = QtWidgets.QWidget()
         l1 = QtWidgets.QVBoxLayout(p1)
-        t = QtWidgets.QLabel("Willkommen bei PrintDock")
+        t = QtWidgets.QLabel(tr("Willkommen bei PrintDock"))
         t.setStyleSheet("font-size: 20px; font-weight: bold;")
         l1.addWidget(t)
         txt = QtWidgets.QLabel(
-            "Zuerst richten wir deinen Drucker ein.\n\n"
+            tr("Zuerst richten wir deinen Drucker ein.\n\n"
             "1.  Drucker einschalten und warten, bis er bereit ist.\n"
             "2.  Verbinden – eins von beiden:\n"
             "      •  USB: Kabel an diesen PC anstecken\n"
             "      •  Netzwerk: Drucker per LAN-Kabel oder WLAN mit demselben Netz verbinden wie diesen PC\n"
             "         (WLAN am Drucker einrichten: über sein Bedienfeld oder die WPS-Taste am Router)\n\n"
-            "Dann auf „Drucker suchen“ klicken.")
+            "Dann auf „Drucker suchen“ klicken."))
         txt.setWordWrap(True)
         l1.addWidget(txt)
         l1.addStretch(1)
@@ -1109,7 +1205,7 @@ class SetupWizard(QtWidgets.QDialog):
         # 2: Suche und Auswahl
         p2 = QtWidgets.QWidget()
         l2 = QtWidgets.QVBoxLayout(p2)
-        self.search_label = QtWidgets.QLabel("Suche Drucker über USB und im Netzwerk …")
+        self.search_label = QtWidgets.QLabel(tr("Suche Drucker über USB und im Netzwerk …"))
         self.search_label.setWordWrap(True)
         l2.addWidget(self.search_label)
         self.busy = QtWidgets.QProgressBar()
@@ -1119,7 +1215,7 @@ class SetupWizard(QtWidgets.QDialog):
         self.flist.currentRowChanged.connect(lambda r: self.next.setEnabled(r >= 0))
         self.flist.itemDoubleClicked.connect(lambda _: self.forward())
         l2.addWidget(self.flist, 1)
-        again = QtWidgets.QPushButton(QtGui.QIcon.fromTheme("view-refresh"), "Erneut suchen")
+        again = QtWidgets.QPushButton(QtGui.QIcon.fromTheme("view-refresh"), tr("Erneut suchen"))
         again.clicked.connect(self.search)
         l2.addWidget(again, 0, QtCore.Qt.AlignLeft)
         self.stack.addWidget(p2)
@@ -1133,21 +1229,21 @@ class SetupWizard(QtWidgets.QDialog):
         self.setup_busy = QtWidgets.QProgressBar()
         self.setup_busy.setRange(0, 0)
         l3.addWidget(self.setup_busy)
-        self.test_btn = QtWidgets.QPushButton(QtGui.QIcon.fromTheme("document-print"), "Testseite drucken")
+        self.test_btn = QtWidgets.QPushButton(QtGui.QIcon.fromTheme("document-print"), tr("Testseite drucken"))
         self.test_btn.clicked.connect(self.test_page)
         self.test_btn.hide()
         l3.addWidget(self.test_btn, 0, QtCore.Qt.AlignLeft)
         self.name_box = QtWidgets.QWidget()
         nl = QtWidgets.QVBoxLayout(self.name_box)
         nl.setContentsMargins(0, 12, 0, 0)
-        nl.addWidget(QtWidgets.QLabel("Wie soll der Drucker heißen? (leer lassen = Gerätename)"))
+        nl.addWidget(QtWidgets.QLabel(tr("Wie soll der Drucker heißen? (leer lassen = Gerätename)")))
         self.name_edit = QtWidgets.QLineEdit()
         nl.addWidget(self.name_edit)
         self.name_box.hide()
         l3.addWidget(self.name_box)
         l3.addStretch(1)
         self.stack.addWidget(p3)
-        self.next.setText("Drucker suchen")
+        self.next.setText(tr("Drucker suchen"))
 
     def forward(self):
         i = self.stack.currentIndex()
@@ -1171,26 +1267,26 @@ class SetupWizard(QtWidgets.QDialog):
         self.flist.clear()
         self.busy.show()
         self.next.setEnabled(False)
-        self.search_label.setText("Suche Drucker über USB und im Netzwerk … (bis zu 15 Sekunden)")
+        self.search_label.setText(tr("Suche Drucker über USB und im Netzwerk … (bis zu 15 Sekunden)"))
 
         def done(ok, res):
             self.busy.hide()
             self.found = res if ok else []
             if not ok:
-                self.search_label.setText(f"Suche fehlgeschlagen: {res}")
+                self.search_label.setText(tr("Suche fehlgeschlagen: {0}", res))
                 return
             if not res:
                 self.search_label.setText(
-                    "Kein Drucker gefunden.\n\nIst er eingeschaltet? Bei USB: Kabel ab- und wieder anstecken. "
-                    "Im Netzwerk: hängt er im selben WLAN/LAN wie dieser PC? Dann „Erneut suchen“.")
+                    tr("Kein Drucker gefunden.\n\nIst er eingeschaltet? Bei USB: Kabel ab- und wieder anstecken. "
+                    "Im Netzwerk: hängt er im selben WLAN/LAN wie dieser PC? Dann „Erneut suchen“."))
                 return
-            self.search_label.setText("Gefunden – Drucker auswählen und „Einrichten“ klicken:")
+            self.search_label.setText(tr("Gefunden – Drucker auswählen und „Einrichten“ klicken:"))
             for p in res:
-                state = "schon eingerichtet" if p.queue else "noch nicht eingerichtet"
+                state = tr("schon eingerichtet") if p.queue else tr("noch nicht eingerichtet")
                 self.flist.addItem(QtWidgets.QListWidgetItem(QtGui.QIcon.fromTheme("printer"),
                                                              f"{p.title}\n{p.connection} · {state}"))
             self.flist.setCurrentRow(next((i for i, p in enumerate(res) if not p.queue), 0))
-            self.next.setText("Einrichten")
+            self.next.setText(tr("Einrichten"))
         bg(discover, done)
 
     def do_setup(self):
@@ -1198,22 +1294,22 @@ class SetupWizard(QtWidgets.QDialog):
         self.skip.setEnabled(False)
         self.next.setEnabled(False)
         if p.queue:
-            self.finish(True, f"„{p.title}“ ist schon eingerichtet.")
+            self.finish(True, tr("„{0}“ ist schon eingerichtet.", p.title))
             return
-        self.setup_label.setText(f"Richte „{p.title}“ ein … Gleich fragt ein Fenster nach deinem Passwort.")
+        self.setup_label.setText(tr("Richte „{0}“ ein … Gleich fragt ein Fenster nach deinem Passwort.", p.title))
 
         def done(ok, res):
-            self.finish(ok, res if ok else f"Einrichten fehlgeschlagen: {res}")
+            self.finish(ok, res if ok else tr("Einrichten fehlgeschlagen: {0}", res))
         bg(lambda: setup_printer(p), done)
 
     def finish(self, ok, text):
         self.setup_busy.hide()
         self.skip.setEnabled(True)
         self.next.setEnabled(True)
-        self.next.setText("Fertig")
-        self.setup_label.setText(text + ("\n\nAls Nächstes kannst du eine Testseite drucken." if ok else
-                                         "\n\n„Fertig“ schließt die Einrichtung; sie lässt sich oben über „Einrichtung“ "
-                                         "jederzeit erneut starten."))
+        self.next.setText(tr("Fertig"))
+        self.setup_label.setText(text + (tr("\n\nAls Nächstes kannst du eine Testseite drucken.") if ok else
+                                         tr("\n\n„Fertig“ schließt die Einrichtung; sie lässt sich oben über „Einrichtung“ "
+                                         "jederzeit erneut starten.")))
         settings = QtCore.QSettings("printdock", "printdock")
         if ok and not settings.value(f"nick/{printer_key(self.chosen)}", ""):
             self.name_edit.setPlaceholderText(real_name(self.chosen))
@@ -1234,7 +1330,7 @@ class SetupWizard(QtWidgets.QDialog):
             q = self.queue
             bg(lambda: cups.Connection().printFile(q, test, "Testseite", {}),
                lambda ok, res: self.setup_label.setText(self.setup_label.text() + (
-                   "\n\nTestseite gesendet." if ok else f"\n\nTestseite fehlgeschlagen: {res}")))
+                   tr("\n\nTestseite gesendet.") if ok else tr("\n\nTestseite fehlgeschlagen: {0}", res))))
 
 
 # ---------- Optik: schlicht, folgt dem Systemthema (hell/dunkel wie im Desktop eingestellt) ----------
@@ -1447,7 +1543,7 @@ def is_toner(markers):
 class MainWindow(QtWidgets.QMainWindow):
     OVERVIEW, PRINT, SCAN, FAX, MAINT = range(5)
     HOME = OVERVIEW
-    NAV = [("Übersicht", "go-home"), ("Drucken", "document-print"), ("Scannen", "scanner"),
+    NAV = [(tr("Übersicht"), "go-home"), ("Drucken", "document-print"), ("Scannen", "scanner"),
            ("Fax", "mail-send"), ("Wartung", "configure")]
 
     def __init__(self):
@@ -1465,11 +1561,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.status_cache = {}   # Drucker-Schluessel -> letzter Status
         self.settings = QtCore.QSettings("printdock", "printdock")
 
-        self.act_search = QtGui.QAction("Drucker suchen", self, triggered=self.search)
-        self.act_setup = QtGui.QAction("Einrichten", self, triggered=self.setup_current)
-        self.act_test = QtGui.QAction("Testseite", self, triggered=self.test_page)
-        self.act_web = QtGui.QAction("Weboberfläche", self, triggered=self.open_web)
-        self.act_remove = QtGui.QAction("Entfernen", self, triggered=self.remove_current)
+        self.act_search = QtGui.QAction(tr("Drucker suchen"), self, triggered=self.search)
+        self.act_setup = QtGui.QAction(tr("Einrichten"), self, triggered=self.setup_current)
+        self.act_test = QtGui.QAction(tr("Testseite"), self, triggered=self.test_page)
+        self.act_web = QtGui.QAction(tr("Weboberfläche"), self, triggered=self.open_web)
+        self.act_remove = QtGui.QAction(tr("Entfernen"), self, triggered=self.remove_current)
         self.update_tag = None
 
         central = QtWidgets.QWidget()
@@ -1482,7 +1578,7 @@ class MainWindow(QtWidgets.QMainWindow):
         right.setContentsMargins(22, 16, 22, 8)
         self.banner = QtWidgets.QVBoxLayout()
         right.addLayout(self.banner)
-        self.back_btn = QtWidgets.QPushButton("←  Übersicht")
+        self.back_btn = QtWidgets.QPushButton(tr("←  Übersicht"))
         self.back_btn.setCursor(QtCore.Qt.PointingHandCursor)
         self.back_btn.clicked.connect(self.back_to_overview)
         right.addWidget(self.back_btn, 0, QtCore.Qt.AlignLeft)
@@ -1494,10 +1590,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.stack.addWidget(self.ov_scroll)
         self.tab_print = self.build_print_tab()
         self.tab_scan = self.build_scan_tab()
-        self.stack.addWidget(self.titled("Drucken", self.tab_print))
-        self.stack.addWidget(self.titled("Scannen", self.tab_scan, framed=False))
+        self.stack.addWidget(self.titled(tr("Drucken"), self.tab_print))
+        self.stack.addWidget(self.titled(tr("Scannen"), self.tab_scan, framed=False))
         self.tab_fax = self.build_fax_tab()
-        self.stack.addWidget(self.titled("Fax", self.tab_fax))
+        self.stack.addWidget(self.titled(tr("Fax"), self.tab_fax))
         self.mt_scroll, self.mt_body = self.scroll_page()
         self.stack.addWidget(self.mt_scroll)
 
@@ -1537,7 +1633,7 @@ class MainWindow(QtWidgets.QMainWindow):
         head.addWidget(t, 1)
         lay.addLayout(head)
         lay.addSpacing(12)
-        h = QtWidgets.QLabel("Drucker")
+        h = QtWidgets.QLabel(tr("Drucker"))
         h.setObjectName("dim")
         lay.addWidget(h)
         self.printer_list = QtWidgets.QListWidget()
@@ -1546,9 +1642,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.printer_list.currentRowChanged.connect(self.select)
         lay.addWidget(self.printer_list)
         row = QtWidgets.QHBoxLayout()
-        b1 = QtWidgets.QPushButton(QtGui.QIcon.fromTheme("view-refresh"), "Suchen")
+        b1 = QtWidgets.QPushButton(QtGui.QIcon.fromTheme("view-refresh"), tr("Suchen"))
         b1.clicked.connect(self.search)
-        b2 = QtWidgets.QPushButton(QtGui.QIcon.fromTheme("list-add"), "Hinzufügen")
+        b2 = QtWidgets.QPushButton(QtGui.QIcon.fromTheme("list-add"), tr("Hinzufügen"))
         b2.clicked.connect(self.run_wizard)
         row.addWidget(b1)
         row.addWidget(b2)
@@ -1566,7 +1662,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.update_btn.clicked.connect(self.update_clicked)
         self.update_btn.hide()
         lay.addWidget(self.update_btn)
-        v = QtWidgets.QPushButton(f"Version {APP_VERSION}  ·  Info")
+        v = QtWidgets.QPushButton(tr("Version {0}  ·  Info", APP_VERSION))
         v.setFlat(True)
         v.setCursor(QtCore.Qt.PointingHandCursor)
         v.setStyleSheet(f"text-align: left; background: transparent; color: {THEME.get('dim', '#888')}; padding: 4px 0;")
@@ -1576,7 +1672,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def show_info(self):
         d = QtWidgets.QDialog(self)
-        d.setWindowTitle(f"Über {APP_NAME}")
+        d.setWindowTitle(tr("Über {0}", APP_NAME))
         d.setStyleSheet(make_qss())
         d.resize(560, 520)
         lay = QtWidgets.QVBoxLayout(d)
@@ -1585,31 +1681,43 @@ class MainWindow(QtWidgets.QMainWindow):
         t = QtWidgets.QLabel(APP_NAME)
         t.setObjectName("title")
         lay.addWidget(t)
-        v = QtWidgets.QLabel(f"Version {APP_VERSION}")
+        v = QtWidgets.QLabel(tr("Version {0}", APP_VERSION))
         v.setObjectName("accent")
         lay.addWidget(v)
-        desc = QtWidgets.QLabel("Drucken, Scannen, Tinte/Toner und Wartung für Drucker unter Linux. "
-                                "Inoffiziell und unabhängig von Druckerherstellern. Lizenz: MIT.")
+        desc = QtWidgets.QLabel(tr("Drucken, Scannen, Tinte/Toner und Wartung für Drucker unter Linux. "
+                                "Inoffiziell und unabhängig von Druckerherstellern. Lizenz: MIT."))
         desc.setWordWrap(True)
         lay.addWidget(desc)
         upd = QtWidgets.QHBoxLayout()
         self.info_upd_label = QtWidgets.QLabel("")
         self.info_upd_label.setObjectName("dim")
-        b = QtWidgets.QPushButton("Nach Updates suchen")
+        b = QtWidgets.QPushButton(tr("Nach Updates suchen"))
         b.setObjectName("primary")
         b.clicked.connect(self.manual_update)
         upd.addWidget(b)
         upd.addWidget(self.info_upd_label, 1)
         lay.addLayout(upd)
-        g, gl = group("Getestete Drucker")
+        # Sprache: zweisprachig beschriftet, damit man auch in einer fremden Sprache zurueckfindet
+        lang_row = QtWidgets.QHBoxLayout()
+        lang_row.addWidget(QtWidgets.QLabel("🌐  " + (tr("Sprache") + " / Language" if LANG != "en" else "Language")))
+        lang = QtWidgets.QComboBox()
+        for code, name in LANGUAGES.items():
+            lang.addItem(name, code)
+        lang.setCurrentIndex(max(0, lang.findData(LANG)))
+        lang.currentIndexChanged.connect(
+            lambda _i: self.change_language(lang.currentData(), d) or lang.setCurrentIndex(max(0, lang.findData(LANG))))
+        lang_row.addWidget(lang)
+        lang_row.addStretch(1)
+        lay.addLayout(lang_row)
+        g, gl = group(tr("Getestete Drucker"))
         for model in TESTED_PRINTERS:
             gl.addWidget(QtWidgets.QLabel(model))
         lay.addWidget(g)
         lay.addStretch(1)
         row = QtWidgets.QHBoxLayout()
-        gh = QtWidgets.QPushButton("Projektseite auf GitHub")
+        gh = QtWidgets.QPushButton(tr("Projektseite auf GitHub"))
         gh.clicked.connect(lambda: webbrowser.open(f"https://github.com/{UPDATE_REPO}"))
-        close = QtWidgets.QPushButton("Schließen")
+        close = QtWidgets.QPushButton(tr("Schließen"))
         close.clicked.connect(d.accept)
         row.addWidget(gh)
         row.addStretch(1)
@@ -1617,6 +1725,28 @@ class MainWindow(QtWidgets.QMainWindow):
         lay.addLayout(row)
         d.exec()
         self.info_upd_label = None
+
+    def change_language(self, code, dialog=None):
+        """Sprache merken, Uebersetzung holen und PrintDock neu starten (Texte stehen beim Start fest)."""
+        if code == LANG or code not in LANGUAGES:
+            return False
+        if not self.leave_scan_ok(discard=True):   # Neustart verwirft ungespeicherte Scans – vorher fragen
+            return False
+        QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+        try:
+            language_table(code, refresh=True)
+            if code not in ("de", "en"):
+                language_table("en")
+            os.makedirs(INSTALL_DIR, exist_ok=True)
+            with open(LANG_FILE, "w", encoding="utf-8") as f:
+                f.write(code + "\n")
+        finally:
+            QtWidgets.QApplication.restoreOverrideCursor()
+        if dialog:
+            dialog.accept()
+        self.status.showMessage(tr("PrintDock startet neu, damit die neue Sprache gilt."))
+        QtWidgets.QApplication.processEvents()
+        os.execv(sys.executable, [sys.executable, os.path.abspath(sys.argv[0])] + sys.argv[1:])
 
     def scroll_page(self):
         sc = QtWidgets.QScrollArea()
@@ -1661,11 +1791,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.clear(self.ov_body)
         p = self.current
         if not p:
-            t = QtWidgets.QLabel("Kein Drucker")
+            t = QtWidgets.QLabel(tr("Kein Drucker"))
             t.setObjectName("title")
             self.ov_body.addWidget(t)
-            hint = QtWidgets.QLabel("Drucker einschalten und per USB anstecken oder ins selbe LAN/WLAN bringen, "
-                                    "dann links auf „Suchen“ – oder „Hinzufügen“ für den Einrichtungs-Assistenten.")
+            hint = QtWidgets.QLabel(tr("Drucker einschalten und per USB anstecken oder ins selbe LAN/WLAN bringen, "
+                                    "dann links auf „Suchen“ – oder „Hinzufügen“ für den Einrichtungs-Assistenten."))
             hint.setWordWrap(True)
             self.ov_body.addWidget(hint)
             self.ov_body.addStretch(1)
@@ -1687,7 +1817,7 @@ class MainWindow(QtWidgets.QMainWindow):
             col.addWidget(m)
         col.addSpacing(10)
         chips = QtWidgets.QHBoxLayout()
-        self.ov_state = QtWidgets.QLabel("Status wird abgefragt …")
+        self.ov_state = QtWidgets.QLabel(tr("Status wird abgefragt …"))
         self.ov_state.setObjectName("chip_off")
         chips.addWidget(self.ov_state)
         conn = QtWidgets.QLabel(p.connection)
@@ -1698,7 +1828,7 @@ class MainWindow(QtWidgets.QMainWindow):
         col.addStretch(1)   # Abzeichen nicht in die Hoehe ziehen, wenn das Druckerbild die Karte hoeher macht
         if not p.queue:
             col.addSpacing(8)
-            b = QtWidgets.QPushButton("Drucker einrichten")
+            b = QtWidgets.QPushButton(tr("Drucker einrichten"))
             b.setObjectName("primary")
             b.clicked.connect(self.setup_current)
             col.addWidget(b, 0, QtCore.Qt.AlignLeft)
@@ -1716,33 +1846,33 @@ class MainWindow(QtWidgets.QMainWindow):
         grid = QtWidgets.QGridLayout()
         grid.setSpacing(12)
         self.ov_tiles = {
-            self.PRINT: tile("Drucken", "Dokumente und Fotos", "document-print", lambda: self.go(self.PRINT)),
-            self.SCAN: tile("Scannen", "Als PDF oder Bild speichern", "scanner", lambda: self.go(self.SCAN)),
-            self.FAX: tile("Fax", "Dokumente senden", "mail-send", lambda: self.go(self.FAX)),
-            self.MAINT: tile("Wartung", "Reinigen, Berichte, Aufträge", "configure", lambda: self.go(self.MAINT)),
+            self.PRINT: tile(tr("Drucken"), tr("Dokumente und Fotos"), "document-print", lambda: self.go(self.PRINT)),
+            self.SCAN: tile(tr("Scannen"), tr("Als PDF oder Bild speichern"), "scanner", lambda: self.go(self.SCAN)),
+            self.FAX: tile(tr("Fax"), tr("Dokumente senden"), "mail-send", lambda: self.go(self.FAX)),
+            self.MAINT: tile(tr("Wartung"), tr("Reinigen, Berichte, Aufträge"), "configure", lambda: self.go(self.MAINT)),
         }
         for i, w in enumerate(self.ov_tiles.values()):
             grid.addWidget(w, 0, i)
         self.ov_body.addLayout(grid)
         self.sync_tiles()
 
-        self.ov_msgs_box, self.ov_msgs = group("Meldungen")
+        self.ov_msgs_box, self.ov_msgs = group(tr("Meldungen"))
         self.ov_body.addWidget(self.ov_msgs_box)
         self.ov_msgs_box.hide()
-        self.ov_ink_box, self.ov_ink = group("Tinte")
+        self.ov_ink_box, self.ov_ink = group(tr("Tinte"))
         self.ov_body.addWidget(self.ov_ink_box)
         self.ov_feat_label = None   # Funktionen zeigen die Kacheln selbst
 
-        dev, dl = group("Gerät")
+        dev, dl = group(tr("Gerät"))
         form = QtWidgets.QFormLayout()
-        form.addRow("Modell", QtWidgets.QLabel(re.sub(r"\s+-\s+.*$", "", p.model or "–")))
-        form.addRow("Verbindung", QtWidgets.QLabel(p.connection))
+        form.addRow(tr("Modell"), QtWidgets.QLabel(re.sub(r"\s+-\s+.*$", "", p.model or "–")))
+        form.addRow(tr("Verbindung"), QtWidgets.QLabel(p.connection))
         if p.host:
-            form.addRow("Adresse", QtWidgets.QLabel(p.host))
-        form.addRow("Warteschlange", QtWidgets.QLabel(p.queue or "noch nicht eingerichtet"))
+            form.addRow(tr("Adresse"), QtWidgets.QLabel(p.host))
+        form.addRow(tr("Warteschlange"), QtWidgets.QLabel(p.queue or tr("noch nicht eingerichtet")))
         tmpl = get_template(p)
         self.ov_tmpl_label = QtWidgets.QLabel(tmpl.get("name", "Standard"))
-        form.addRow("Vorlage", self.ov_tmpl_label)
+        form.addRow(tr("Vorlage"), self.ov_tmpl_label)
         dl.addLayout(form)
         self.ov_hints = QtWidgets.QVBoxLayout()
         dl.addLayout(self.ov_hints)
@@ -1764,7 +1894,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.ov_state.style().polish(self.ov_state)
             self.clear(self.ov_msgs)
             texts = [reason_text(r) for r in res.get("reasons", [])] + ([res["message"]] if res.get("message") else [])
-            h = QtWidgets.QLabel("Meldungen")
+            h = QtWidgets.QLabel(tr("Meldungen"))
             h.setObjectName("h2")
             self.ov_msgs.addWidget(h)
             reasons = res.get("reasons", [])
@@ -1779,15 +1909,15 @@ class MainWindow(QtWidgets.QMainWindow):
             self.fill_features(res)
             self.clear(self.ov_ink)
             markers = res.get("markers", [])
-            h = QtWidgets.QLabel("Toner" if is_toner(markers) else "Tinte")
+            h = QtWidgets.QLabel(tr("Toner") if is_toner(markers) else tr("Tinte"))
             h.setObjectName("h2")
             self.ov_ink.addWidget(h)
             for mk in markers:
                 self.ov_ink.addWidget(InkBar(mk))
             if not markers:
-                lab = QtWidgets.QLabel("Füllstände gibt es wieder, wenn der Drucker an ist." if "offline" in res.get("reasons", [])
-                                       else "Der Drucker meldet keinen Füllstand." if (self.current and (self.current.queue or self.current.host))
-                                       else "Füllstände gibt es nach dem Einrichten.")
+                lab = QtWidgets.QLabel(tr("Füllstände gibt es wieder, wenn der Drucker an ist.") if "offline" in res.get("reasons", [])
+                                       else tr("Der Drucker meldet keinen Füllstand.") if (self.current and (self.current.queue or self.current.host))
+                                       else tr("Füllstände gibt es nach dem Einrichten."))
                 lab.setObjectName("dim")
                 self.ov_ink.addWidget(lab)
         except RuntimeError:
@@ -1803,12 +1933,12 @@ class MainWindow(QtWidgets.QMainWindow):
         feats = []
         modes = sup.get("print-color-mode-supported") or []
         if modes:
-            feats.append("✓ Farbdruck" if "color" in modes else "✓ Schwarzweißdruck")
+            feats.append(tr("✓ Farbdruck") if "color" in modes else tr("✓ Schwarzweißdruck"))
         sides = sup.get("sides-supported") or []
         if sides:
-            feats.append("✓ Beidseitig drucken" if any(x.startswith("two-sided") for x in sides) else "✗ nur einseitig")
+            feats.append(tr("✓ Beidseitig drucken") if any(x.startswith("two-sided") for x in sides) else tr("✗ nur einseitig"))
         if self.printer_has_scanner(p):
-            feats.append("✓ Scannen" + (" mit Vorlageneinzug" if getattr(self, "duplex_value", None) or
+            feats.append(tr("✓ Scannen") + (tr(" mit Vorlageneinzug") if getattr(self, "duplex_value", None) or
                                         any(re.search(r"adf|feeder", self.scan_source.itemData(i) or "", re.I)
                                             for i in range(self.scan_source.count())) else ""))
         try:
@@ -1818,7 +1948,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 lab.setObjectName("chip_off" if f.startswith("✗") else "badge")
                 self.ov_feat_row.addWidget(lab)
             if not feats:
-                lab = QtWidgets.QLabel("Erst nach dem Einrichten bekannt.")
+                lab = QtWidgets.QLabel(tr("Erst nach dem Einrichten bekannt."))
                 lab.setObjectName("dim")
                 self.ov_feat_row.addWidget(lab)
             self.ov_feat_row.addStretch(1)
@@ -1843,18 +1973,18 @@ class MainWindow(QtWidgets.QMainWindow):
     # ----- Wartung -----
     def build_maintenance(self):
         self.clear(self.mt_body)
-        t = QtWidgets.QLabel("Wartung")
+        t = QtWidgets.QLabel(tr("Wartung"))
         t.setObjectName("title")
         self.mt_body.addWidget(t)
         p = self.current
         # Druckauftraege (alle Marken)
-        jobs, jl = group("Druckaufträge")
+        jobs, jl = group(tr("Druckaufträge"))
         self.job_list = QtWidgets.QListWidget()
         self.job_list.setMaximumHeight(130)
         jl.addWidget(self.job_list)
         r = QtWidgets.QHBoxLayout()
-        for text, cb in (("Aktualisieren", self.refresh_jobs), ("Ausgewählten abbrechen", self.cancel_job),
-                         ("Alle abbrechen", self.cancel_all_jobs)):
+        for text, cb in (("Aktualisieren", self.refresh_jobs), (tr("Ausgewählten abbrechen"), self.cancel_job),
+                         (tr("Alle abbrechen"), self.cancel_all_jobs)):
             b = QtWidgets.QPushButton(text)
             b.clicked.connect(cb)
             b.setEnabled(bool(p and p.queue))
@@ -1863,36 +1993,36 @@ class MainWindow(QtWidgets.QMainWindow):
         jl.addLayout(r)
         self.mt_body.addWidget(jobs)
         # Qualitaet und Berichte: werden je nach Drucker gefuellt
-        self.mt_quality, self.mt_q = group("Druckkopf und Qualität")
-        self.mt_reports, self.mt_r = group("Berichte")
+        self.mt_quality, self.mt_q = group(tr("Druckkopf und Qualität"))
+        self.mt_reports, self.mt_r = group(tr("Berichte"))
         self.mt_body.addWidget(self.mt_quality)
         self.mt_body.addWidget(self.mt_reports)
         self.mt_reports.hide()
         if p:
-            self.add_maint_row(self.mt_q, "document-print", "Testseite drucken", "Prüft, ob Druck und Farben stimmen.",
+            self.add_maint_row(self.mt_q, "document-print", tr("Testseite drucken"), tr("Prüft, ob Druck und Farben stimmen."),
                                self.test_page, bool(p.queue))
             if p.host:
-                self.add_maint_row(self.mt_q, "internet-web-browser", "Weboberfläche des Druckers",
-                                   f"Weitere Werkzeuge am Drucker selbst ({p.host}), z. B. Ausrichten.", self.open_web, True)
+                self.add_maint_row(self.mt_q, "internet-web-browser", tr("Weboberfläche des Druckers"),
+                                   tr("Weitere Werkzeuge am Drucker selbst ({0}), z. B. Ausrichten.", p.host), self.open_web, True)
             self.load_maintenance(p)
         else:
-            lab = QtWidgets.QLabel("Kein Drucker gewählt.")
+            lab = QtWidgets.QLabel(tr("Kein Drucker gewählt."))
             lab.setObjectName("dim")
             self.mt_q.addWidget(lab)
-        f2, fl2 = group("Einrichtung")
+        f2, fl2 = group(tr("Einrichtung"))
         r = QtWidgets.QHBoxLayout()
-        a = QtWidgets.QPushButton(QtGui.QIcon.fromTheme("tools-wizard"), "Einrichtungs-Assistent")
+        a = QtWidgets.QPushButton(QtGui.QIcon.fromTheme("tools-wizard"), tr("Einrichtungs-Assistent"))
         a.clicked.connect(self.run_wizard)
         r.addWidget(a)
         if p:
-            rn = QtWidgets.QPushButton(QtGui.QIcon.fromTheme("document-edit"), "Drucker umbenennen")
+            rn = QtWidgets.QPushButton(QtGui.QIcon.fromTheme("document-edit"), tr("Drucker umbenennen"))
             rn.clicked.connect(self.rename)
             r.addWidget(rn)
-            pic = QtWidgets.QPushButton(QtGui.QIcon.fromTheme("insert-image"), "Bild für diesen Druckertyp…")
+            pic = QtWidgets.QPushButton(QtGui.QIcon.fromTheme("insert-image"), tr("Bild für diesen Druckertyp…"))
             pic.clicked.connect(self.choose_printer_image)
             r.addWidget(pic)
         if p and p.queue:
-            rm = QtWidgets.QPushButton(QtGui.QIcon.fromTheme("list-remove"), "Drucker von diesem PC entfernen")
+            rm = QtWidgets.QPushButton(QtGui.QIcon.fromTheme("list-remove"), tr("Drucker von diesem PC entfernen"))
             rm.clicked.connect(self.remove_current)
             r.addWidget(rm)
         r.addStretch(1)
@@ -1901,7 +2031,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.mt_body.addStretch(1)
         self.refresh_jobs()
 
-    def add_maint_row(self, lay, icon_name, text, desc, cb, enabled=True, button="Ausführen"):
+    def add_maint_row(self, lay, icon_name, text, desc, cb, enabled=True, button=tr("Ausführen")):
         r = QtWidgets.QHBoxLayout()
         ic = QtWidgets.QLabel()
         ic.setPixmap(QtGui.QIcon.fromTheme(icon_name).pixmap(22, 22))
@@ -1937,9 +2067,9 @@ class MainWindow(QtWidgets.QMainWindow):
                 levels = [j for j in CLEAN_LEVELS if j in res["ledm"]]
                 if levels:
                     seen.add("clean")
-                    self.add_maint_row(self.mt_q, "configure", "Druckkopf reinigen",
-                                       "Bei Streifen oder blassen Farben. Druckt eine Seite; danach fragt die App, "
-                                       "ob eine gründlichere Reinigung nötig ist.",
+                    self.add_maint_row(self.mt_q, "configure", tr("Druckkopf reinigen"),
+                                       tr("Bei Streifen oder blassen Farben. Druckt eine Seite; danach fragt die App, "
+                                       "ob eine gründlichere Reinigung nötig ist."),
                                        lambda _=False: self.start_cleaning(p, ip, levels))
                 allowed = get_template(p).get("wartung")
                 for job in res["ledm"]:
@@ -1952,7 +2082,7 @@ class MainWindow(QtWidgets.QMainWindow):
                     lay = self.mt_q if kind == "quality" else self.mt_r
                     self.add_maint_row(lay, "configure" if kind == "quality" else "document-preview", text, desc,
                                        lambda _=False, j=job, t=text: self.run_ledm(ip, j, t),
-                                       button="Drucken" if kind == "report" else "Ausführen")
+                                       button=tr("Drucken") if kind == "report" else tr("Ausführen"))
                     if kind == "report":
                         self.mt_reports.show()
                 for c in res["cups"]:
@@ -1967,38 +2097,38 @@ class MainWindow(QtWidgets.QMainWindow):
     def start_cleaning(self, p, ip, levels, step=0):
         """Stufe fuer Stufe: reinigen, warten bis der Drucker fertig ist, fragen ob es reicht."""
         if step == 0 and QtWidgets.QMessageBox.question(
-                self, APP_NAME, "Druckkopf reinigen?\n\nDie Reinigung verbraucht etwas Tinte und druckt eine "
-                "Seite – bitte Papier einlegen.") != QtWidgets.QMessageBox.Yes:
+                self, APP_NAME, tr("Druckkopf reinigen?\n\nDie Reinigung verbraucht etwas Tinte und druckt eine "
+                "Seite – bitte Papier einlegen.")) != QtWidgets.QMessageBox.Yes:
             return
-        stufe = f"Stufe {step + 1} von {len(levels)}"
-        self.status.showMessage(f"Druckkopf wird gereinigt ({stufe}) …")
+        stufe = tr("Stufe {0} von {1}", step + 1, len(levels))
+        self.status.showMessage(tr("Druckkopf wird gereinigt ({0}) …", stufe))
 
         def work():
             ledm_run(ip, levels[step])
             time.sleep(15)   # der Drucker beginnt erst nach ein paar Sekunden
             deadline = time.time() + 300
             while time.time() < deadline:
-                if query_status(p).get("state") == "Bereit":
+                if query_status(p).get("state") == tr("Bereit"):
                     return
                 time.sleep(5)
 
         def done(ok, res):
             if not ok:
-                self.status.showMessage(f"Reinigung fehlgeschlagen: {res}")
+                self.status.showMessage(tr("Reinigung fehlgeschlagen: {0}", res))
                 return
-            self.status.showMessage(f"Reinigung {stufe} fertig.")
+            self.status.showMessage(tr("Reinigung {0} fertig.", stufe))
             if step + 1 >= len(levels):
                 QtWidgets.QMessageBox.information(
-                    self, APP_NAME, "Die gründlichste Reinigung ist durch.\n\nSind noch Streifen zu sehen, hilft oft "
-                    "eine Pause von ein paar Stunden – oder die Patrone ist leer bzw. eingetrocknet.")
+                    self, APP_NAME, tr("Die gründlichste Reinigung ist durch.\n\nSind noch Streifen zu sehen, hilft oft "
+                    "eine Pause von ein paar Stunden – oder die Patrone ist leer bzw. eingetrocknet."))
                 return
             box = QtWidgets.QMessageBox(self)
             box.setWindowTitle(APP_NAME)
-            box.setText("Ist das Druckbild auf der gedruckten Seite jetzt in Ordnung?")
-            box.setInformativeText("Sind noch Streifen oder Lücken zu sehen, folgt eine gründlichere Reinigung "
-                                   "(braucht mehr Tinte).")
-            ok_btn = box.addButton("Ja, fertig", QtWidgets.QMessageBox.AcceptRole)
-            more = box.addButton("Weitere Reinigung", QtWidgets.QMessageBox.ActionRole)
+            box.setText(tr("Ist das Druckbild auf der gedruckten Seite jetzt in Ordnung?"))
+            box.setInformativeText(tr("Sind noch Streifen oder Lücken zu sehen, folgt eine gründlichere Reinigung "
+                                   "(braucht mehr Tinte)."))
+            ok_btn = box.addButton(tr("Ja, fertig"), QtWidgets.QMessageBox.AcceptRole)
+            more = box.addButton(tr("Weitere Reinigung"), QtWidgets.QMessageBox.ActionRole)
             box.setDefaultButton(ok_btn)
             box.exec()
             if box.clickedButton() is more:
@@ -2007,19 +2137,18 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def run_ledm(self, ip, job, text):
         if job.startswith("cleaningPage") and QtWidgets.QMessageBox.question(
-                self, APP_NAME, f"{text} starten?\n\nDie Reinigung verbraucht Tinte und druckt eine Seite – "
-                "Papier einlegen.") != QtWidgets.QMessageBox.Yes:
+                self, APP_NAME, tr("{0} starten?\n\nDie Reinigung verbraucht Tinte und druckt eine Seite – Papier einlegen.", text)) != QtWidgets.QMessageBox.Yes:
             return
-        self.status.showMessage(f"{text} …")
+        self.status.showMessage(tr("{0} …", text))
         bg(lambda: ledm_run(ip, job),
-           lambda ok, res: self.status.showMessage(f"{text}: gestartet." if ok else f"{text} fehlgeschlagen: {res}"))
+           lambda ok, res: self.status.showMessage(tr("{0}: gestartet.", text) if ok else tr("{0} fehlgeschlagen: {1}", text, res)))
 
     def run_cups_command(self, cmd):
         p = self.current
         if not p or not p.queue:
             return
         bg(lambda: cups_command(p.queue, cmd),
-           lambda ok, res: self.status.showMessage(f"{CUPS_COMMANDS[cmd][0]}: gesendet." if ok else f"Fehlgeschlagen: {res}"))
+           lambda ok, res: self.status.showMessage(tr("{0}: gesendet.", CUPS_COMMANDS[cmd][0]) if ok else tr("Fehlgeschlagen: {0}", res)))
 
     def refresh_jobs(self):
         p = self.current
@@ -2035,7 +2164,7 @@ class MainWindow(QtWidgets.QMainWindow):
             try:
                 self.job_list.clear()
                 if not ok:
-                    self.job_list.addItem(f"Nicht abrufbar: {jobs}")
+                    self.job_list.addItem(tr("Nicht abrufbar: {0}", jobs))
                     return
                 states = {3: "wartet", 4: "angehalten", 5: "druckt", 6: "gestoppt"}
                 for jid, j in sorted(jobs.items()):
@@ -2043,7 +2172,7 @@ class MainWindow(QtWidgets.QMainWindow):
                     item.setData(QtCore.Qt.UserRole, jid)
                     self.job_list.addItem(item)
                 if not jobs:
-                    self.job_list.addItem("Keine offenen Druckaufträge.")
+                    self.job_list.addItem(tr("Keine offenen Druckaufträge."))
             except RuntimeError:
                 pass
         bg(work, done)
@@ -2053,17 +2182,17 @@ class MainWindow(QtWidgets.QMainWindow):
         jid = item.data(QtCore.Qt.UserRole) if item else None
         if jid:
             bg(lambda: cups.Connection().cancelJob(jid),
-               lambda ok, res: (self.status.showMessage("Auftrag abgebrochen." if ok else f"Abbrechen fehlgeschlagen: {res}"),
+               lambda ok, res: (self.status.showMessage(tr("Auftrag abgebrochen.") if ok else tr("Abbrechen fehlgeschlagen: {0}", res)),
                                 self.refresh_jobs()))
 
     def cancel_all_jobs(self):
         p = self.current
         if not p or not p.queue:
             return
-        if QtWidgets.QMessageBox.question(self, APP_NAME, "Alle offenen Druckaufträge abbrechen?") != QtWidgets.QMessageBox.Yes:
+        if QtWidgets.QMessageBox.question(self, APP_NAME, tr("Alle offenen Druckaufträge abbrechen?")) != QtWidgets.QMessageBox.Yes:
             return
         bg(lambda: cups.Connection().cancelAllJobs(name=p.queue),
-           lambda ok, res: (self.status.showMessage("Alle Aufträge abgebrochen." if ok else f"Fehlgeschlagen: {res}"),
+           lambda ok, res: (self.status.showMessage(tr("Alle Aufträge abgebrochen.") if ok else tr("Fehlgeschlagen: {0}", res)),
                             self.refresh_jobs()))
 
     # ----- Druckerliste links -----
@@ -2078,7 +2207,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 color = STATE_COLORS["warn"]
             else:
                 color = STATE_COLORS["ok"]
-            sub = "nicht eingerichtet" if not p.queue else p.connection.split(" ")[0]
+            sub = tr("nicht eingerichtet") if not p.queue else p.connection.split(" ")[0]
             self.printer_list.addItem(QtWidgets.QListWidgetItem(dot_icon(color), f"{self.nickname(p)}\n{sub}"))
         if self.current in self.printers:
             self.printer_list.setCurrentRow(self.printers.index(self.current))
@@ -2106,12 +2235,12 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def search(self):
         self.act_search.setEnabled(False)
-        self.status.showMessage("Suche Drucker (USB und Netzwerk)…")
+        self.status.showMessage(tr("Suche Drucker (USB und Netzwerk)…"))
 
         def done(ok, res):
             self.act_search.setEnabled(True)
             if not ok:
-                self.status.showMessage(f"Suche fehlgeschlagen: {res}")
+                self.status.showMessage(tr("Suche fehlgeschlagen: {0}", res))
                 return
             if res:
                 for p in res:
@@ -2127,18 +2256,18 @@ class MainWindow(QtWidgets.QMainWindow):
                     p.model = p.model or known.model
                 self.settings.setValue("printers_cache", json.dumps([p.to_dict() for p in res]))
             elif self.printers:
-                self.status.showMessage("Drucker gerade nicht erreichbar – ist er eingeschaltet?")
+                self.status.showMessage(tr("Drucker gerade nicht erreichbar – ist er eingeschaltet?"))
                 return
             if self.printers and self.printers_sig(res) == self.printers_sig(self.printers):
                 # nichts Neues: Anzeige nicht neu aufbauen, nur die frischen Daten uebernehmen
                 for old_p, new_p in zip(self.printers, res):
                     old_p.__dict__.update({k: v for k, v in new_p.__dict__.items() if v is not None})
-                self.status.showMessage(f"{len(res)} Drucker gefunden.")
+                self.status.showMessage(tr("{0} Drucker gefunden.", len(res)))
                 return
             old = printer_key(self.current) if self.current else self.settings.value("last_printer", "")
             self.printers = res
-            self.status.showMessage(f"{len(res)} Drucker gefunden." if res else
-                                    "Kein Drucker gefunden. Ist er eingeschaltet und per USB oder im selben Netz verbunden?")
+            self.status.showMessage(tr("{0} Drucker gefunden.", len(res)) if res else
+                                    tr("Kein Drucker gefunden. Ist er eingeschaltet und per USB oder im selben Netz verbunden?"))
             idx = next((i for i, p in enumerate(res) if printer_key(p) == old), None)
             if idx is None:
                 idx = next((i for i, p in enumerate(res) if p.queue), 0 if res else -1)
@@ -2189,7 +2318,7 @@ class MainWindow(QtWidgets.QMainWindow):
         try:
             self.ov_tmpl_label.setText(tmpl.get("name", "Standard"))
             self.clear(self.ov_hints)
-            for h in tmpl.get("hinweise") or []:
+            for h in template_hints(tmpl):
                 lab = QtWidgets.QLabel("ℹ  " + h)
                 lab.setObjectName("dim")
                 lab.setWordWrap(True)
@@ -2232,7 +2361,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         def done(ok, res):
             if not ok:
-                res = {"state": "", "reasons": [], "message": f"Status nicht abrufbar: {res}", "markers": [],
+                res = {"state": "", "reasons": [], "message": tr("Status nicht abrufbar: {0}", res), "markers": [],
                        "supported": {}}
             key = printer_key(p)
             urgent = {reason_base(r) for r in res.get("reasons", []) if reason_base(r) in REASONS_URGENT}
@@ -2272,11 +2401,11 @@ class MainWindow(QtWidgets.QMainWindow):
         box = QtWidgets.QMessageBox(self)
         box.setWindowTitle(APP_NAME)
         box.setIcon(QtWidgets.QMessageBox.Question)
-        box.setText(f"{self.page_view.count()} gescannte Seite(n) sind noch nicht gespeichert.")
-        box.setInformativeText("Willst du sie wirklich verwerfen?")
-        save = box.addButton("Speichern…", QtWidgets.QMessageBox.AcceptRole)
-        drop = box.addButton("Verwerfen", QtWidgets.QMessageBox.DestructiveRole)
-        box.addButton("Abbrechen", QtWidgets.QMessageBox.RejectRole)
+        box.setText(tr("{0} gescannte Seite(n) sind noch nicht gespeichert.", self.page_view.count()))
+        box.setInformativeText(tr("Willst du sie wirklich verwerfen?"))
+        save = box.addButton(tr("Speichern…"), QtWidgets.QMessageBox.AcceptRole)
+        drop = box.addButton(tr("Verwerfen"), QtWidgets.QMessageBox.DestructiveRole)
+        box.addButton(tr("Abbrechen"), QtWidgets.QMessageBox.RejectRole)
         box.setDefaultButton(save)
         box.exec()
         if box.clickedButton() is save:
@@ -2329,22 +2458,22 @@ class MainWindow(QtWidgets.QMainWindow):
         p = self.current
         if not p:
             return
-        path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Bild für diesen Druckertyp", os.path.expanduser("~"),
-                                                        "Bilder (*.png *.jpg *.jpeg *.webp *.bmp)")
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(self, tr("Bild für diesen Druckertyp"), os.path.expanduser("~"),
+                                                        tr("Bilder (*.png *.jpg *.jpeg *.webp *.bmp)"))
         if not path:
             return
         target = printer_image_target(p)
         os.makedirs(os.path.dirname(target), exist_ok=True)
         Image.open(path).convert("RGBA").save(target)
         self.build_overview()
-        self.status.showMessage("Bild gespeichert – gilt für alle Drucker dieses Typs.")
+        self.status.showMessage(tr("Bild gespeichert – gilt für alle Drucker dieses Typs."))
 
     def rename(self):
         p = self.current
         if not p:
             return
-        name, ok = QtWidgets.QInputDialog.getText(self, "Drucker umbenennen",
-                                                  "Name für diesen Drucker (leer lassen = Gerätename):",
+        name, ok = QtWidgets.QInputDialog.getText(self, tr("Drucker umbenennen"),
+                                                  tr("Name für diesen Drucker (leer lassen = Gerätename):"),
                                                   text=self.nickname(p))
         if ok:
             self.settings.setValue(f"nick/{printer_key(p)}", name.strip() or real_name(p))
@@ -2362,21 +2491,21 @@ class MainWindow(QtWidgets.QMainWindow):
         if self.update_tag:
             self.update_clicked()
             return
-        self.status.showMessage("Suche nach Updates…")
+        self.status.showMessage(tr("Suche nach Updates…"))
         self.check_update(manual=True)
 
     def check_update(self, manual=False):
         def done(ok, tag):
             if manual and not (ok and tag and ver_tuple(tag) > ver_tuple(APP_VERSION)):
-                msg = f"v{APP_VERSION} ist aktuell." if ok else f"Update-Prüfung fehlgeschlagen: {tag}"
+                msg = tr("v{0} ist aktuell.", APP_VERSION) if ok else tr("Update-Prüfung fehlgeschlagen: {0}", tag)
                 self.status.showMessage(msg)
                 if getattr(self, "info_upd_label", None) is not None:
                     self.info_upd_label.setText(msg)
             if ok and tag and ver_tuple(tag) > ver_tuple(APP_VERSION):
                 self.update_tag = tag
-                self.update_btn.setText(f"⬆ Update {tag}")
+                self.update_btn.setText(tr("⬆ Update {0}", tag))
                 self.update_btn.show()
-                self.status.showMessage(f"Update verfügbar: {tag} (installiert: v{APP_VERSION})")
+                self.status.showMessage(tr("Update verfügbar: {0} (installiert: v{1})", tag, APP_VERSION))
                 if manual:
                     self.update_clicked()
         bg(latest_release, done)
@@ -2384,17 +2513,16 @@ class MainWindow(QtWidgets.QMainWindow):
     def update_clicked(self):
         if not self.update_tag:
             return
-        if QtWidgets.QMessageBox.question(self, APP_NAME, f"Auf {self.update_tag} aktualisieren?\n\n"
-                                          "Das Programm startet danach neu.") != QtWidgets.QMessageBox.Yes:
+        if QtWidgets.QMessageBox.question(self, APP_NAME, tr("Auf {0} aktualisieren?\n\nDas Programm startet danach neu.", self.update_tag)) != QtWidgets.QMessageBox.Yes:
             return
         self.update_btn.setEnabled(False)
-        self.update_btn.setText("Lade Update…")
+        self.update_btn.setText(tr("Lade Update…"))
 
         def done(ok, res):
             if not ok:
                 self.update_btn.setEnabled(True)
-                self.update_btn.setText(f"⬆ Update {self.update_tag}")
-                QtWidgets.QMessageBox.warning(self, APP_NAME, f"Update fehlgeschlagen: {res}")
+                self.update_btn.setText(tr("⬆ Update {0}", self.update_tag))
+                QtWidgets.QMessageBox.warning(self, APP_NAME, tr("Update fehlgeschlagen: {0}", res))
                 return
             os.execv(sys.executable, [sys.executable, os.path.realpath(__file__)] + sys.argv[1:])
         bg(lambda: install_update(self.update_tag), done)
@@ -2416,17 +2544,17 @@ class MainWindow(QtWidgets.QMainWindow):
         bar = QtWidgets.QFrame()
         bar.setObjectName("group")
         lay = QtWidgets.QHBoxLayout(bar)
-        lab = QtWidgets.QLabel("Es fehlen Pakete: " + ", ".join(missing))
+        lab = QtWidgets.QLabel(tr("Es fehlen Pakete: ") + ", ".join(missing))
         lay.addWidget(lab, 1)
         if shutil.which("pacman") and shutil.which("pkexec"):
-            btn = QtWidgets.QPushButton("Jetzt installieren")
+            btn = QtWidgets.QPushButton(tr("Jetzt installieren"))
             btn.setObjectName("primary")
             btn.clicked.connect(lambda: self.install_packages(missing, bar))
             lay.addWidget(btn)
         self.banner.addWidget(bar)
 
     def install_packages(self, pkgs, bar):
-        self.status.showMessage("Installiere " + " ".join(pkgs) + " …")
+        self.status.showMessage(tr("Installiere ") + " ".join(pkgs) + tr(" …"))
 
         def work():
             rc, out, err = run(["pkexec", "pacman", "-S", "--needed", "--noconfirm"] + pkgs, 900)
@@ -2435,25 +2563,25 @@ class MainWindow(QtWidgets.QMainWindow):
 
         def done(ok, res):
             if ok:
-                QtWidgets.QMessageBox.information(self, APP_NAME, "Installiert. Bitte das Programm neu starten.")
+                QtWidgets.QMessageBox.information(self, APP_NAME, tr("Installiert. Bitte das Programm neu starten."))
                 bar.hide()
             else:
-                QtWidgets.QMessageBox.warning(self, APP_NAME, f"Installation fehlgeschlagen: {res}")
+                QtWidgets.QMessageBox.warning(self, APP_NAME, tr("Installation fehlgeschlagen: {0}", res))
         bg(work, done)
 
     # ----- Drucken -----
     def build_print_tab(self):
         w = QtWidgets.QWidget()
         lay = QtWidgets.QVBoxLayout(w)
-        self.print_hint = QtWidgets.QLabel("Zum Drucken den Drucker erst einrichten (oben „Einrichten“).")
+        self.print_hint = QtWidgets.QLabel(tr("Zum Drucken den Drucker erst einrichten (oben „Einrichten“)."))
         self.print_hint.setStyleSheet("color: #d97706;")
         lay.addWidget(self.print_hint)
         self.print_files = QtWidgets.QListWidget()
         lay.addWidget(self.print_files, 1)
         row = QtWidgets.QHBoxLayout()
-        add = QtWidgets.QPushButton(QtGui.QIcon.fromTheme("document-open"), "Dateien hinzufügen…")
+        add = QtWidgets.QPushButton(QtGui.QIcon.fromTheme("document-open"), tr("Dateien hinzufügen…"))
         add.clicked.connect(self.add_print_files)
-        rem = QtWidgets.QPushButton("Liste leeren")
+        rem = QtWidgets.QPushButton(tr("Liste leeren"))
         rem.clicked.connect(self.print_files.clear)
         row.addWidget(add)
         row.addWidget(rem)
@@ -2463,24 +2591,24 @@ class MainWindow(QtWidgets.QMainWindow):
         self.copies = QtWidgets.QSpinBox()
         self.copies.setRange(1, 99)
         self.pages_edit = QtWidgets.QLineEdit()
-        self.pages_edit.setPlaceholderText("alle, oder z. B. 1-3,5")
-        self.sides = QtWidgets.QCheckBox("Beidseitig drucken")
+        self.pages_edit.setPlaceholderText(tr("alle, oder z. B. 1-3,5"))
+        self.sides = QtWidgets.QCheckBox(tr("Beidseitig drucken"))
         self.sides.setChecked(True)
         self.color = QtWidgets.QComboBox()
         self.media = QtWidgets.QComboBox()
         self.quality = QtWidgets.QComboBox()
-        self.fit = QtWidgets.QCheckBox("Auf Seite einpassen (Bilder)")
+        self.fit = QtWidgets.QCheckBox(tr("Auf Seite einpassen (Bilder)"))
         self.fit.setChecked(True)
-        form.addRow("Kopien", self.copies)
-        form.addRow("Seiten", self.pages_edit)
+        form.addRow(tr("Kopien"), self.copies)
+        form.addRow(tr("Seiten"), self.pages_edit)
         form.addRow("", self.sides)
-        form.addRow("Farbe", self.color)
-        form.addRow("Papier", self.media)
-        form.addRow("Qualität", self.quality)
+        form.addRow(tr("Farbe"), self.color)
+        form.addRow(tr("Papier"), self.media)
+        form.addRow(tr("Qualität"), self.quality)
         form.addRow("", self.fit)
         lay.addLayout(form)
         self.apply_supported({})
-        self.print_btn = QtWidgets.QPushButton(QtGui.QIcon.fromTheme("document-print"), "Drucken")
+        self.print_btn = QtWidgets.QPushButton(QtGui.QIcon.fromTheme("document-print"), tr("Drucken"))
         self.print_btn.setMinimumHeight(36)
         self.print_btn.setObjectName("primary")
         self.print_btn.clicked.connect(self.do_print)
@@ -2513,8 +2641,8 @@ class MainWindow(QtWidgets.QMainWindow):
         fill(self.quality, [(lbl, v) for v, lbl in (("4", "Normal"), ("3", "Entwurf"), ("5", "Hoch")) if v in qual], "4")
 
     def add_print_files(self):
-        files, _ = QtWidgets.QFileDialog.getOpenFileNames(self, "Dateien drucken", os.path.expanduser("~"),
-                                                          "Druckbar (*.pdf *.jpg *.jpeg *.png *.bmp *.tif *.tiff *.txt *.ps);;Alle Dateien (*)")
+        files, _ = QtWidgets.QFileDialog.getOpenFileNames(self, tr("Dateien drucken"), os.path.expanduser("~"),
+                                                          tr("Druckbar (*.pdf *.jpg *.jpeg *.png *.bmp *.tif *.tiff *.txt *.ps);;Alle Dateien (*)"))
         for f in files:
             self.print_files.addItem(f)
 
@@ -2524,7 +2652,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if not p or not p.queue:
             return
         if not files:
-            self.status.showMessage("Erst Dateien hinzufügen.")
+            self.status.showMessage(tr("Erst Dateien hinzufügen."))
             return
         opts = {"copies": str(self.copies.value())}
         opts["sides"] = "two-sided-long-edge" if self.sides.isVisible() and self.sides.isChecked() else "one-sided"
@@ -2542,7 +2670,7 @@ class MainWindow(QtWidgets.QMainWindow):
             return conn.printFiles(p.queue, files, os.path.basename(files[0]), opts)
 
         def done(ok, res):
-            self.status.showMessage(f"Druckauftrag {res} gesendet." if ok else f"Drucken fehlgeschlagen: {res}")
+            self.status.showMessage(tr("Druckauftrag {0} gesendet.", res) if ok else tr("Drucken fehlgeschlagen: {0}", res))
             if ok:
                 QtCore.QTimer.singleShot(3000, self.refresh_status)
         bg(work, done)
@@ -2554,21 +2682,21 @@ class MainWindow(QtWidgets.QMainWindow):
         if not p or not p.queue or not test:
             return
         bg(lambda: cups.Connection().printFile(p.queue, test, "Testseite", {}),
-           lambda ok, res: self.status.showMessage("Testseite gesendet." if ok else f"Testseite fehlgeschlagen: {res}"))
+           lambda ok, res: self.status.showMessage(tr("Testseite gesendet.") if ok else tr("Testseite fehlgeschlagen: {0}", res)))
 
     def setup_current(self):
         p = self.current
         if not p:
             return
-        self.status.showMessage("Richte Drucker ein…")
+        self.status.showMessage(tr("Richte Drucker ein…"))
 
         def done(ok, res):
-            self.status.showMessage(res if ok else f"Einrichten fehlgeschlagen: {res}")
+            self.status.showMessage(res if ok else tr("Einrichten fehlgeschlagen: {0}", res))
             if ok:
                 key = f"nick/{printer_key(p)}"
                 if not self.settings.value(key, ""):
                     name, given = QtWidgets.QInputDialog.getText(
-                        self, "Druckername", "Wie soll der Drucker heißen? (leer lassen = Gerätename)",
+                        self, tr("Druckername"), tr("Wie soll der Drucker heißen? (leer lassen = Gerätename)"),
                         text="")
                     self.settings.setValue(key, (name.strip() if given else "") or real_name(p))
                 QtCore.QTimer.singleShot(1500, self.search)
@@ -2578,11 +2706,11 @@ class MainWindow(QtWidgets.QMainWindow):
         p = self.current
         if not p or not p.queue:
             return
-        if QtWidgets.QMessageBox.question(self, APP_NAME, f"Warteschlange „{p.queue}“ entfernen?\nDer Drucker selbst bleibt unverändert.") \
+        if QtWidgets.QMessageBox.question(self, APP_NAME, tr("Warteschlange „{0}“ entfernen?\nDer Drucker selbst bleibt unverändert.", p.queue)) \
                 != QtWidgets.QMessageBox.Yes:
             return
         bg(lambda: remove_queue(p.queue),
-           lambda ok, res: (self.status.showMessage("Entfernt." if ok else f"Entfernen fehlgeschlagen: {res}"), ok and self.search()))
+           lambda ok, res: (self.status.showMessage("Entfernt." if ok else tr("Entfernen fehlgeschlagen: {0}", res)), ok and self.search()))
 
     def open_web(self):
         if self.current and self.current.host:
@@ -2594,31 +2722,31 @@ class MainWindow(QtWidgets.QMainWindow):
         lay = QtWidgets.QVBoxLayout(w)
         form = QtWidgets.QFormLayout()
         self.fax_number = QtWidgets.QLineEdit()
-        self.fax_number.setPlaceholderText("Faxnummer, z. B. 030 1234567")
-        form.addRow("An", self.fax_number)
+        self.fax_number.setPlaceholderText(tr("Faxnummer, z. B. 030 1234567"))
+        form.addRow(tr("An"), self.fax_number)
         lay.addLayout(form)
         self.fax_files = QtWidgets.QListWidget()
         lay.addWidget(self.fax_files, 1)
         row = QtWidgets.QHBoxLayout()
-        add = QtWidgets.QPushButton("Dokumente hinzufügen…")
+        add = QtWidgets.QPushButton(tr("Dokumente hinzufügen…"))
         add.clicked.connect(self.add_fax_files)
-        take = QtWidgets.QPushButton("Gescannte Seiten übernehmen")
+        take = QtWidgets.QPushButton(tr("Gescannte Seiten übernehmen"))
         take.clicked.connect(self.fax_from_scan)
-        clear = QtWidgets.QPushButton("Liste leeren")
+        clear = QtWidgets.QPushButton(tr("Liste leeren"))
         clear.clicked.connect(lambda: self.fax_files.clear())
         for b in (add, take, clear):
             row.addWidget(b)
         row.addStretch(1)
         lay.addLayout(row)
-        self.fax_state = QtWidgets.QLabel("Am Drucker muss eine Telefonleitung angeschlossen sein.")
+        self.fax_state = QtWidgets.QLabel(tr("Am Drucker muss eine Telefonleitung angeschlossen sein."))
         self.fax_state.setObjectName("dim")
         self.fax_state.setWordWrap(True)
         lay.addWidget(self.fax_state)
         row = QtWidgets.QHBoxLayout()
-        self.fax_cancel_btn = QtWidgets.QPushButton("Abbrechen")
+        self.fax_cancel_btn = QtWidgets.QPushButton(tr("Abbrechen"))
         self.fax_cancel_btn.hide()
         self.fax_cancel_btn.clicked.connect(lambda: self.fax_cancel.set())
-        self.fax_send_btn = QtWidgets.QPushButton("Fax senden")
+        self.fax_send_btn = QtWidgets.QPushButton(tr("Fax senden"))
         self.fax_send_btn.setObjectName("primary")
         self.fax_send_btn.setMinimumHeight(36)
         self.fax_send_btn.clicked.connect(self.send_fax)
@@ -2629,15 +2757,15 @@ class MainWindow(QtWidgets.QMainWindow):
         return w
 
     def add_fax_files(self):
-        files, _ = QtWidgets.QFileDialog.getOpenFileNames(self, "Dokumente faxen", os.path.expanduser("~"),
-                                                          "Dokumente (*.pdf *.png *.jpg *.jpeg *.bmp *.tif *.tiff *.webp)")
+        files, _ = QtWidgets.QFileDialog.getOpenFileNames(self, tr("Dokumente faxen"), os.path.expanduser("~"),
+                                                          tr("Dokumente (*.pdf *.png *.jpg *.jpeg *.bmp *.tif *.tiff *.webp)"))
         for f in files:
             self.fax_files.addItem(f)
 
     def fax_from_scan(self):
         files = [self.page_view.item(i).data(QtCore.Qt.UserRole) for i in range(self.page_view.count())]
         if not files:
-            self.status.showMessage("Keine gescannten Seiten.")
+            self.status.showMessage(tr("Keine gescannten Seiten."))
             return
         for f in files:
             self.fax_files.addItem(f)
@@ -2647,9 +2775,9 @@ class MainWindow(QtWidgets.QMainWindow):
         number = re.sub(r"[^0-9+*#]", "", self.fax_number.text())
         files = [self.fax_files.item(i).text() for i in range(self.fax_files.count())]
         if not p or not number or not files:
-            self.fax_state.setText("Faxnummer und mindestens ein Dokument angeben.")
+            self.fax_state.setText(tr("Faxnummer und mindestens ein Dokument angeben."))
             return
-        if QtWidgets.QMessageBox.question(self, APP_NAME, f"{len(files)} Dokument(e) an {number} faxen?") \
+        if QtWidgets.QMessageBox.question(self, APP_NAME, tr("{0} Dokument(e) an {1} faxen?", len(files), number)) \
                 != QtWidgets.QMessageBox.Yes:
             return
         self.fax_cancel.clear()
@@ -2662,8 +2790,8 @@ class MainWindow(QtWidgets.QMainWindow):
         def done(ok, res):
             self.fax_send_btn.setEnabled(True)
             self.fax_cancel_btn.hide()
-            self.fax_state.setText(res if ok else f"Fehler: {res}")
-            self.status.showMessage(res if ok else "Fax fehlgeschlagen.")
+            self.fax_state.setText(res if ok else tr("Fehler: {0}", res))
+            self.status.showMessage(res if ok else tr("Fax fehlgeschlagen."))
         bg(lambda: fax_send(p.host, number, files, progress, self.fax_cancel), done)
 
     # ----- Scannen -----
@@ -2689,8 +2817,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # links: Hinweis, Vorschau oder gescannte Seiten
         left = QtWidgets.QVBoxLayout()
         self.scan_area_stack = QtWidgets.QStackedWidget()
-        hint = QtWidgets.QLabel('Lege dein Dokument in den Scanner und wähle <b>Scannen</b> oder '
-                                f'<a href="import" style="color:{ACCENT};">importiere</a> eine Datei.')
+        hint = QtWidgets.QLabel(tr("Lege dein Dokument in den Scanner und wähle <b>Scannen</b> oder <a href=\"import\" style=\"color:{0};\">importiere</a> eine Datei.", ACCENT))
         hint.setAlignment(QtCore.Qt.AlignCenter)
         hint.setWordWrap(True)
         hint.setStyleSheet("font-size: 17px;")
@@ -2712,11 +2839,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.md_bar.setObjectName("group")
         mb = QtWidgets.QHBoxLayout(self.md_bar)
         mb.setContentsMargins(12, 6, 12, 6)
-        mb.addWidget(QtWidgets.QLabel("Rückseiten falsch einsortiert?"), 1)
-        b = QtWidgets.QPushButton("Reihenfolge umkehren")
+        mb.addWidget(QtWidgets.QLabel(tr("Rückseiten falsch einsortiert?")), 1)
+        b = QtWidgets.QPushButton(tr("Reihenfolge umkehren"))
         b.clicked.connect(lambda: self.manual_toggle("reverse"))
         mb.addWidget(b)
-        b = QtWidgets.QPushButton("Um 180° drehen")
+        b = QtWidgets.QPushButton(tr("Um 180° drehen"))
         b.clicked.connect(lambda: self.manual_toggle("rotate"))
         mb.addWidget(b)
         self.md_bar.hide()
@@ -2743,23 +2870,23 @@ class MainWindow(QtWidgets.QMainWindow):
         split.addWidget(self.page_big, 1)
         pl.addLayout(split, 1)
         row = QtWidgets.QHBoxLayout()
-        more = QtWidgets.QPushButton("+ Seite importieren")
+        more = QtWidgets.QPushButton(tr("+ Seite importieren"))
         more.clicked.connect(self.import_pages)
-        delete = QtWidgets.QPushButton("Ausgewählte löschen")
+        delete = QtWidgets.QPushButton(tr("Ausgewählte löschen"))
         delete.clicked.connect(self.delete_pages)
-        clear = QtWidgets.QPushButton("Alle löschen")
+        clear = QtWidgets.QPushButton(tr("Alle löschen"))
         clear.clicked.connect(lambda: self.clear_pages())
         self.save_fmt = QtWidgets.QComboBox()
         for lbl, ext in SAVE_FORMATS:
             self.save_fmt.addItem(lbl, ext)
-        save = QtWidgets.QPushButton("Speichern…")
+        save = QtWidgets.QPushButton(tr("Speichern…"))
         save.setObjectName("primary")
         save.clicked.connect(self.save_scan)
         rot_l = QtWidgets.QPushButton("↺")
-        rot_l.setToolTip("Ausgewählte Seiten nach links drehen")
+        rot_l.setToolTip(tr("Ausgewählte Seiten nach links drehen"))
         rot_l.clicked.connect(lambda: self.rotate_pages(90))
         rot_r = QtWidgets.QPushButton("↻")
-        rot_r.setToolTip("Ausgewählte Seiten nach rechts drehen")
+        rot_r.setToolTip(tr("Ausgewählte Seiten nach rechts drehen"))
         rot_r.clicked.connect(lambda: self.rotate_pages(-90))
         for w in (more, rot_l, rot_r, delete, clear):
             row.addWidget(w)
@@ -2769,8 +2896,8 @@ class MainWindow(QtWidgets.QMainWindow):
         pl.addLayout(row)
         self.scan_area_stack.addWidget(pages_box)
         left.addWidget(self.scan_area_stack, 1)
-        note = QtWidgets.QLabel("Nimm das Original nach dem Scannen aus dem Gerät – liegt es im Scanner, "
-                                "kann jeder im Netzwerk es scannen.")
+        note = QtWidgets.QLabel(tr("Nimm das Original nach dem Scannen aus dem Gerät – liegt es im Scanner, "
+                                "kann jeder im Netzwerk es scannen."))
         note.setObjectName("dim")
         note.setAlignment(QtCore.Qt.AlignCenter)
         note.setWordWrap(True)
@@ -2787,40 +2914,40 @@ class MainWindow(QtWidgets.QMainWindow):
         rl.setSpacing(12)
         self.scanner_combo = QtWidgets.QComboBox()
         self.scanner_combo.currentIndexChanged.connect(self.load_scanner_options)
-        self.scanner_field = self.field("Scanner", self.scanner_combo)
+        self.scanner_field = self.field(tr("Scanner"), self.scanner_combo)
         rl.addWidget(self.scanner_field)
         self.scan_source = QtWidgets.QComboBox()
-        rl.addWidget(self.field("Quelle", self.scan_source))
-        self.scan_duplex = QtWidgets.QCheckBox("Beidseitig")
+        rl.addWidget(self.field(tr("Quelle"), self.scan_source))
+        self.scan_duplex = QtWidgets.QCheckBox(tr("Beidseitig"))
         self.scan_duplex.hide()
         self.scan_duplex.toggled.connect(self.source_changed)
         rl.addWidget(self.scan_duplex)
         # Beidseitig ohne Wenden im Geraet: erst alle Vorderseiten, dann den Stapel umdrehen und die
         # Rueckseiten – das Papier laeuft nur einfach durch, das schont die Einzugsrollen
-        self.scan_manual = QtWidgets.QCheckBox("Beidseitig von Hand (Stapel wenden)")
-        self.scan_manual.setToolTip("Erst alle Vorderseiten, dann den Stapel umdrehen und die Rückseiten scannen.\n"
-                                    "Schont den Einzug – nichts wird im Gerät gewendet.")
+        self.scan_manual = QtWidgets.QCheckBox(tr("Beidseitig von Hand (Stapel wenden)"))
+        self.scan_manual.setToolTip(tr("Erst alle Vorderseiten, dann den Stapel umdrehen und die Rückseiten scannen.\n"
+                                    "Schont den Einzug – nichts wird im Gerät gewendet."))
         self.scan_manual.hide()
         rl.addWidget(self.scan_manual)
         self.scan_manual.toggled.connect(lambda on: on and self.scan_duplex.setChecked(False))
         self.scan_duplex.toggled.connect(lambda on: on and self.scan_manual.setChecked(False))
         self.scan_source.currentIndexChanged.connect(self.source_changed)
-        self.scan_crop = QtWidgets.QCheckBox("Kanten erkennen")
+        self.scan_crop = QtWidgets.QCheckBox(tr("Kanten erkennen"))
         rl.addWidget(self.scan_crop)
         self.scan_preset = QtWidgets.QComboBox()
         for lbl in ("Dokument", "Foto"):
-            self.scan_preset.addItem(lbl, lbl)
+            self.scan_preset.addItem(tr(lbl), lbl)
         self.scan_preset.currentIndexChanged.connect(self.apply_preset)
-        rl.addWidget(self.field("Voreinstellungen", self.scan_preset))
+        rl.addWidget(self.field(tr("Voreinstellungen"), self.scan_preset))
         self.scan_area = QtWidgets.QComboBox()
         for lbl, area in SCAN_AREAS:
             self.scan_area.addItem(lbl, area)
-        rl.addWidget(self.field("Scanbereich", self.scan_area))
+        rl.addWidget(self.field(tr("Scanbereich"), self.scan_area))
         self.scan_mode = QtWidgets.QComboBox()
-        rl.addWidget(self.field("Ausgabe", self.scan_mode))
+        rl.addWidget(self.field(tr("Ausgabe"), self.scan_mode))
         self.scan_res = QtWidgets.QComboBox()
-        rl.addWidget(self.field("Auflösung", self.scan_res))
-        reset = QtWidgets.QPushButton("Einstellungen zurücksetzen")
+        rl.addWidget(self.field(tr("Auflösung"), self.scan_res))
+        reset = QtWidgets.QPushButton(tr("Einstellungen zurücksetzen"))
         reset.setFlat(True)
         reset.clicked.connect(self.load_scanner_options)
         rl.addWidget(reset)
@@ -2830,11 +2957,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.adf_alert.setStyleSheet(f"color: {STATE_COLORS['err']}; font-weight: 600;")
         self.adf_alert.hide()
         rl.addWidget(self.adf_alert)
-        self.preview_btn = QtWidgets.QPushButton("Vorschau")
+        self.preview_btn = QtWidgets.QPushButton(tr("Vorschau"))
         self.preview_btn.setMinimumHeight(34)
         self.preview_btn.clicked.connect(self.do_preview)
         rl.addWidget(self.preview_btn)
-        self.scan_btn = QtWidgets.QPushButton("Scannen")
+        self.scan_btn = QtWidgets.QPushButton(tr("Scannen"))
         self.scan_btn.setObjectName("primary")
         self.scan_btn.setMinimumHeight(34)
         self.scan_btn.clicked.connect(self.do_scan)
@@ -2867,7 +2994,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.scan_res.blockSignals(True)
         self.scan_res.clear()
         for r in res:
-            self.scan_res.addItem(f"{r} dpi", r)
+            self.scan_res.addItem(tr("{0} dpi", r), r)
         want = cur if cur in res else max((r for r in res if cur and int(r) <= int(cur)), key=int, default=res[-1] if res else None)
         self.scan_res.setCurrentIndex(max(0, self.scan_res.findData(want)))
         self.scan_res.blockSignals(False)
@@ -2899,7 +3026,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.adf_alert.setText("⚠  " + problem if problem else "")
                 self.adf_alert.setVisible(bool(problem))
                 if problem:
-                    notify("Vorlageneinzug", problem)
+                    notify(tr("Vorlageneinzug"), problem)
             if problem or st is None or not self.scan_btn.isEnabled():
                 return
             loaded = st == "ScannerAdfLoaded"
@@ -2910,7 +3037,7 @@ class MainWindow(QtWidgets.QMainWindow):
                          if self.is_feeder(self.scan_source.itemData(j)) == loaded), None)
             if want is not None:
                 self.scan_source.setCurrentIndex(self.scan_source.findData(want))
-                self.status.showMessage("Papier im Vorlageneinzug erkannt." if loaded else "Vorlageneinzug leer – Scannerglas.")
+                self.status.showMessage(tr("Papier im Vorlageneinzug erkannt.") if loaded else tr("Vorlageneinzug leer – Scannerglas."))
         bg(lambda: adf_state(ip), done)
 
     def scan_args(self):
@@ -2926,13 +3053,13 @@ class MainWindow(QtWidgets.QMainWindow):
         if not dev:
             return
         self.preview_btn.setEnabled(False)
-        self.preview_btn.setText("Vorschau läuft…")
+        self.preview_btn.setText(tr("Vorschau läuft…"))
 
         def done(ok, files):
             self.preview_btn.setEnabled(True)
-            self.preview_btn.setText("Vorschau")
+            self.preview_btn.setText(tr("Vorschau"))
             if not ok:
-                self.status.showMessage(f"Vorschau fehlgeschlagen: {files}")
+                self.status.showMessage(tr("Vorschau fehlgeschlagen: {0}", files))
                 return
             # gibt es schon Seiten, erscheint die Vorschau gross neben ihnen; sonst allein
             if self.page_view.count():
@@ -2951,7 +3078,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.pages.append(f)
             item = QtWidgets.QListWidgetItem(QtGui.QIcon(QtGui.QPixmap(f).scaled(260, 360, QtCore.Qt.KeepAspectRatio,
                                                                                   QtCore.Qt.SmoothTransformation)),
-                                             f"Seite {self.page_view.count() + 1}")
+                                             tr("Seite {0}", self.page_view.count() + 1))
             item.setData(QtCore.Qt.UserRole, f)
             self.page_view.addItem(item)
         if files:
@@ -2966,11 +3093,11 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def renumber_pages(self):
         for i in range(self.page_view.count()):
-            self.page_view.item(i).setText(f"Seite {i + 1}")
+            self.page_view.item(i).setText(tr("Seite {0}", i + 1))
 
     def import_pages(self):
-        files, _ = QtWidgets.QFileDialog.getOpenFileNames(self, "Bilder importieren", os.path.expanduser("~"),
-                                                          "Bilder (*.png *.jpg *.jpeg *.bmp *.tif *.tiff *.webp)")
+        files, _ = QtWidgets.QFileDialog.getOpenFileNames(self, tr("Bilder importieren"), os.path.expanduser("~"),
+                                                          tr("Bilder (*.png *.jpg *.jpeg *.bmp *.tif *.tiff *.webp)"))
         self.add_page_files(files)
 
     def clear_pages(self, ask=True):
@@ -2996,7 +3123,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.fill_scanners(True, cached)
         else:
             self.scanner_combo.clear()
-            self.scanner_combo.addItem("Suche Scanner…", None)
+            self.scanner_combo.addItem(tr("Suche Scanner…"), None)
             self.scanner_combo.setEnabled(False)
 
         def done(ok, res):
@@ -3013,9 +3140,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.scanner_combo.clear()
         self.scanners = res if ok else []
         if not ok:
-            self.scanner_combo.addItem(f"Scannen nicht möglich: {res}", None)
+            self.scanner_combo.addItem(tr("Scannen nicht möglich: {0}", res), None)
         elif not res:
-            self.scanner_combo.addItem("Kein Scanner gefunden", None)
+            self.scanner_combo.addItem(tr("Kein Scanner gefunden"), None)
         for dev, desc in self.scanners:
             kind = "Netzwerk/IPP" if dev.startswith("airscan") else "Treiber"
             short = re.sub(r"^eSCL\s+|\s+ip=.*$", "", desc)   # airscan haengt Protokoll und IPs an
@@ -3052,8 +3179,8 @@ class MainWindow(QtWidgets.QMainWindow):
             for c in (self.scan_mode, self.scan_res, self.scan_source):
                 c.clear()   # kann zweimal laufen (gemerkt, dann frisch) – nichts doppelt eintragen
             opts = opts if ok else {}
-            names = {"Color": "Farbe", "Gray": "Graustufen", "Lineart": "Schwarzweiß", "Flatbed": "Scannerglas",
-                     "ADF": "Vorlageneinzug"}
+            names = {"Color": tr("Farbe"), "Gray": tr("Graustufen"), "Lineart": tr("Schwarzweiß"), "Flatbed": tr("Scannerglas"),
+                     "ADF": tr("Vorlageneinzug")}
             # wie HP Smart: nur Vorlageneinzug und Scannerglas; beidseitig ist ein Haken beim Einzug
             if "source" in opts:
                 srcs, cur = opts["source"]
@@ -3066,7 +3193,7 @@ class MainWindow(QtWidgets.QMainWindow):
                                          ("source", self.scan_source, [])):
                 choices, cur = opts.get(key, (fallback, fallback[1] if len(fallback) > 1 else ""))
                 for c in choices:
-                    combo.addItem(f"{c} dpi" if key == "resolution" else names.get(c, c), c)
+                    combo.addItem(tr("{0} dpi", c) if key == "resolution" else names.get(c, c), c)
                 i = combo.findData("300" if key == "resolution" and "300" in choices else cur)
                 combo.setCurrentIndex(max(0, i))
             self.scan_source.setEnabled(self.scan_source.count() > 1)
@@ -3104,14 +3231,14 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         manual = self.is_feeder(src) and self.scan_manual.isChecked() and self.scan_manual.isVisible()
         self.scan_btn.setEnabled(False)
-        self.scan_btn.setText("Scanne…")
+        self.scan_btn.setText(tr("Scanne…"))
 
         def done(ok, files):
             self.scan_btn.setEnabled(True)
-            self.scan_btn.setText("Scannen")
+            self.scan_btn.setText(tr("Scannen"))
             if not ok:
                 problem = getattr(self, "adf_problem", None)
-                self.status.showMessage(f"Scan fehlgeschlagen: {problem or files}")
+                self.status.showMessage(tr("Scan fehlgeschlagen: {0}", problem or files))
                 QtCore.QTimer.singleShot(0, self.poll_adf)   # Grund sofort nachsehen statt erst in 3 s
                 return
             self.scan_dpi = res or "300"
@@ -3119,7 +3246,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.manual_backs(dev, mode, res, src, area, crop, files)
                 return
             self.add_page_files(files)
-            self.status.showMessage(f"{len(files)} Seite(n) gescannt.")
+            self.status.showMessage(tr("{0} Seite(n) gescannt.", len(files)))
         bg(lambda: scan(dev, mode, res, src, area, crop), done)
 
     # ----- Beidseitig von Hand -----
@@ -3164,34 +3291,34 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def manual_backs(self, dev, mode, res, src, area, crop, fronts):
         box = QtWidgets.QMessageBox(self)
-        box.setWindowTitle("Rückseiten scannen")
+        box.setWindowTitle(tr("Rückseiten scannen"))
         box.setIcon(QtWidgets.QMessageBox.Information)
-        box.setText(f"{len(fronts)} Vorderseite(n) gescannt.")
-        box.setInformativeText("Nimm den Stapel aus der Ablage, dreh ihn um, ohne ihn neu zu sortieren, "
-                               "und leg ihn wieder in den Einzug.")
-        go = box.addButton("Rückseiten scannen", QtWidgets.QMessageBox.AcceptRole)
-        box.addButton("Nur Vorderseiten behalten", QtWidgets.QMessageBox.RejectRole)
+        box.setText(tr("{0} Vorderseite(n) gescannt.", len(fronts)))
+        box.setInformativeText(tr("Nimm den Stapel aus der Ablage, dreh ihn um, ohne ihn neu zu sortieren, "
+                               "und leg ihn wieder in den Einzug."))
+        go = box.addButton(tr("Rückseiten scannen"), QtWidgets.QMessageBox.AcceptRole)
+        box.addButton(tr("Nur Vorderseiten behalten"), QtWidgets.QMessageBox.RejectRole)
         box.exec()
         if box.clickedButton() is not go:
             self.add_page_files(fronts)
-            self.status.showMessage(f"{len(fronts)} Seite(n) gescannt.")
+            self.status.showMessage(tr("{0} Seite(n) gescannt.", len(fronts)))
             return
         self.scan_btn.setEnabled(False)
-        self.scan_btn.setText("Scanne Rückseiten…")
+        self.scan_btn.setText(tr("Scanne Rückseiten…"))
 
         def done(ok, backs):
             self.scan_btn.setEnabled(True)
-            self.scan_btn.setText("Scannen")
+            self.scan_btn.setText(tr("Scannen"))
             if not ok:
                 self.add_page_files(fronts)
-                self.status.showMessage(f"Rückseiten fehlgeschlagen: {backs} – Vorderseiten sind übernommen.")
+                self.status.showMessage(tr("Rückseiten fehlgeschlagen: {0} – Vorderseiten sind übernommen.", backs))
                 return
             self.md_last = (fronts, backs)
             self.add_page_files(self.manual_merge(fronts, backs))
             self.md_bar.show()
-            msg = f"{len(fronts)} Blatt beidseitig gescannt."
+            msg = tr("{0} Blatt beidseitig gescannt.", len(fronts))
             if len(backs) != len(fronts):
-                msg = f"Achtung: {len(fronts)} Vorderseiten, aber {len(backs)} Rückseiten – bitte prüfen."
+                msg = tr("Achtung: {0} Vorderseiten, aber {1} Rückseiten – bitte prüfen.", len(fronts), len(backs))
             self.status.showMessage(msg)
         bg(lambda: scan(dev, mode, res, src, area, crop), done)
 
@@ -3228,21 +3355,21 @@ class MainWindow(QtWidgets.QMainWindow):
     def save_scan(self):
         files = [self.page_view.item(i).data(QtCore.Qt.UserRole) for i in range(self.page_view.count())]
         if not files:
-            self.status.showMessage("Noch nichts gescannt.")
+            self.status.showMessage(tr("Noch nichts gescannt."))
             return
         if Image is None:
-            self.status.showMessage("python-pillow fehlt.")
+            self.status.showMessage(tr("python-pillow fehlt."))
             return
         ext = self.save_fmt.currentData()
         start = os.path.join(QtCore.QStandardPaths.writableLocation(QtCore.QStandardPaths.DocumentsLocation)
                              or os.path.expanduser("~"), f"Scan.{ext}")
-        path, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Scan speichern", start, f"{ext.upper()} (*.{ext})")
+        path, _ = QtWidgets.QFileDialog.getSaveFileName(self, tr("Scan speichern"), start, f"{ext.upper()} (*.{ext})")
         if not path:
             return
         if not path.lower().endswith("." + ext):
             path += "." + ext
         def done(ok, res):
-            self.status.showMessage(("Gespeichert: " + ", ".join(res)) if ok else f"Speichern fehlgeschlagen: {res}")
+            self.status.showMessage(("Gespeichert: " + ", ".join(res)) if ok else tr("Speichern fehlgeschlagen: {0}", res))
             if ok:
                 self.scan_saved = True
         bg(lambda: save_pages(files, path, ext, self.scan_dpi), done)
@@ -3302,6 +3429,7 @@ def main():
     _bridge.call.connect(lambda fn: fn(), QtCore.Qt.QueuedConnection)
     win = MainWindow()
     win.show()
+    bg(refresh_languages)   # neue Uebersetzungen fuer das naechste Mal holen
     if os.environ.get("DZ_SELFTEST"):
         if os.environ.get("DZ_PAGE"):
             QtCore.QTimer.singleShot(int(os.environ.get("DZ_SELFTEST_MS", "3000")) - 500,
