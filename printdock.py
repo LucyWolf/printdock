@@ -28,7 +28,7 @@ except ImportError:
     Image = None
 
 APP_NAME = "PrintDock"
-APP_VERSION = "1.0.43"
+APP_VERSION = "1.0.44"
 # Frueher „HP Druckzentrale“, dann „Druckzentrale“; migrate_old_install() zieht alte Installationen um.
 UPDATE_REPO = "LucyWolf/printdock"
 # Mit echten Geraeten ausprobiert (Modell, Verbindung, was geprueft wurde)
@@ -404,8 +404,12 @@ def fetch_template(p):
             data = None                            # kein Netz: beim naechsten Mal nochmal versuchen
         if data is not None:
             os.makedirs(TEMPLATE_DIR, exist_ok=True)
-            with open(path, "w", encoding="utf-8") as f:
+            # erst in eine eigene Datei, dann austauschen: Uebersicht und Einrichten holen die Vorlage
+            # gleichzeitig, und eine halb geschriebene Datei gaelte sonst kurz als „keine Vorlage“
+            tmp = f"{path}.{threading.get_ident()}.tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=1)
+            os.replace(tmp, path)
     return get_template(p)
 
 
